@@ -1,0 +1,13 @@
+using Microsoft.EntityFrameworkCore;
+using CRM.Api.Models;
+
+namespace CRM.Api.Data
+{
+    public class AppDbContext : DbContext
+    {
+        public AppDbContext(DbContextOptions<AppDbContext> options)
+            : base(options) {}
+
+        public DbSet<TestCityTemp> TestCityTemp { get; set; }
+    }
+}
