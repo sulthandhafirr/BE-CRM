@@ -9,5 +9,7 @@ namespace CRM.Api.Data
             : base(options) {}
 
         public DbSet<TestCityTemp> TestCityTemp { get; set; }
+        public DbSet<Profile> Profiles { get; set; }
+        public DbSet<Role> Roles { get; set; }
     }
 }
