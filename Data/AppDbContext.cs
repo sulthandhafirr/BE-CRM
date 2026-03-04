@@ -11,5 +11,7 @@ namespace CRM.Api.Data
         public DbSet<TestCityTemp> TestCityTemp { get; set; }
         public DbSet<Profile> Profiles { get; set; }
         public DbSet<Role> Roles { get; set; }
+        public DbSet<Ticket> Tickets { get; set; }
+        public DbSet<PriorityList> Priorities { get; set; }
     }
 }

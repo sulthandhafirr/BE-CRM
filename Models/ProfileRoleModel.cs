@@ -21,6 +21,12 @@ namespace CRM.Api.Models
         [Column("id")]
         public Guid Id { get; set; } //Guid = UUID
 
+        [Column("email")]
+        public string? Email { get; set; }
+
+        [Column("name")]
+        public string? Name { get; set; }
+
         [Column("role_id")]
         public int RoleId { get; set; }
 
