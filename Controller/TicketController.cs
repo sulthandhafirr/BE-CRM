@@ -14,11 +14,15 @@ namespace CRM.Api.Controllers
     public class TicketController : BaseController
     {
         private readonly AppDbContext _db;
+        private readonly IConfiguration _config;
+        private readonly IHttpClientFactory _httpClientFactory;
 
-        public TicketController(AppDbContext db, RoleService roleService)
+        public TicketController(AppDbContext db, RoleService roleService, IConfiguration config, IHttpClientFactory httpClientFactory)
             : base(roleService)
         {
             _db = db;
+            _config = config;
+            _httpClientFactory = httpClientFactory;
         }
 
         // GET /api/tickets — customer gets their own tickets
@@ -52,6 +56,75 @@ namespace CRM.Api.Controllers
             return Ok(tickets);
         }
 
+        // GET /api/tickets/upload-url - generate signed upload URLs for attachments
+        [HttpPost("upload-url")]
+        public async Task<IActionResult> GetUploadUrls([FromBody] UploadUrlRequest request)
+        {
+            var role = await GetCurrentUserRole();
+            if (role != "customer") return Forbid();
+
+            if (request.Files == null || request.Files.Count == 0)
+                return BadRequest("Files are required");
+
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            var ownsTicket = await _db.Tickets
+                .AsNoTracking()
+                .AnyAsync(t => t.Id == request.TicketId && t.CustomerId == userId);
+
+            if (!ownsTicket)
+                return NotFound("Ticket not found or access denied");
+
+            var supabaseUrl = _config["Supabase:Url"];
+            var serviceKey = _config["Supabase:ServiceKey"];
+            var httpClient = _httpClientFactory.CreateClient();
+
+            var results = new List<object>();
+
+            foreach (var file in request.Files)
+            {
+                // var filePath = $"temp/{Guid.NewGuid()}_{file.FileName}";
+                var filePath = $"{request.TicketId}/{Guid.NewGuid()}_{file.FileName}";
+                var requestUrl = $"{supabaseUrl}/storage/v1/object/upload/sign/ticket-attachment/{filePath}";
+
+                var requestBody = new StringContent(
+                    System.Text.Json.JsonSerializer.Serialize(new { expiresIn = 60 }),
+                    System.Text.Encoding.UTF8,
+                    "application/json"
+                );
+
+                var req = new HttpRequestMessage(HttpMethod.Post, requestUrl);
+                req.Headers.Add("Authorization", $"Bearer {serviceKey}");
+                req.Content = requestBody;
+
+                var response = await httpClient.SendAsync(req);
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                    return StatusCode((int)response.StatusCode, new { message = "Failed to generate upload URL", detail = responseBody });
+
+                var json = System.Text.Json.JsonDocument.Parse(responseBody);
+                if (!json.RootElement.TryGetProperty("url", out var urlElement) ||
+                    !json.RootElement.TryGetProperty("token", out var tokenElement))
+                    return StatusCode(502, new { message = "Invalid response from storage service" });
+
+                var signedUrl = urlElement.GetString();
+                var token = tokenElement.GetString();
+
+                if (string.IsNullOrWhiteSpace(signedUrl) || string.IsNullOrWhiteSpace(token))
+                    return StatusCode(502, new { message = "Storage service returned empty URL/token" });
+
+                results.Add(new
+                {
+                    signedUrl = $"{supabaseUrl}/storage/v1{signedUrl}",
+                    filePath,
+                    token,
+                    fileName = file.FileName,
+                });
+            }
+
+            return Ok(results);
+        }
+
         // POST /api/tickets — customer creates a ticket
         [HttpPost]
         public async Task<IActionResult> CreateTicket([FromBody] CreateTicketRequest request)
@@ -83,11 +156,61 @@ namespace CRM.Api.Controllers
 
             return Ok(new { message = "Ticket created successfully!", ticketId = ticket.Id });
         }
-    }
 
-    public class CreateTicketRequest
-    {
-        public string? Subject { get; set; }
-        public string? Description { get; set; }
+        [HttpPost("{ticketId}/attachments")]
+        public async Task<IActionResult> SaveAttachments(long ticketId, [FromBody] List<AttachmentInfo> attachments)
+        {
+            var role = await GetCurrentUserRole();
+            if (role != "customer") return Forbid();
+
+            if (attachments == null || attachments.Count == 0)
+                return BadRequest("Attachments are required");
+
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            var ownsTicket = await _db.Tickets
+                .AsNoTracking()
+                .AnyAsync(t => t.Id == ticketId && t.CustomerId == userId);
+
+            if (!ownsTicket)
+                return NotFound("Ticket not found or access denied");
+
+            var supabaseUrl = _config["Supabase:Url"];
+
+            foreach (var attachment in attachments)
+            {
+                var fileUrl = $"{supabaseUrl}/storage/v1/object/public/ticket-attachment/{attachment.FilePath}";
+
+                await _db.Database.ExecuteSqlInterpolatedAsync($@"
+            INSERT INTO public.ticket_attachment (ticket_id, file_url, file_name, file_size, uploaded_at)
+            VALUES ({ticketId}, {fileUrl}, {attachment.FileName}, {attachment.FileSize}, {DateTime.UtcNow})");
+            }
+
+            return Ok(new { message = "Attachments saved!" });
+        }
+
+        public class AttachmentInfo
+        {
+            public string? FilePath { get; set; }
+            public string? FileName { get; set; }
+            public long FileSize { get; set; }
+        }
+
+        public class CreateTicketRequest
+        {
+            public string? Subject { get; set; }
+            public string? Description { get; set; }
+        }
+
+        public class FileRequest
+        {
+            public string? FileName { get; set; }
+            // public string? ContentType { get; set; }
+        }
+
+        public class UploadUrlRequest
+        {
+            public long TicketId { get; set; }
+            public List<FileRequest> Files { get; set; } = new();
+        }
     }
 }

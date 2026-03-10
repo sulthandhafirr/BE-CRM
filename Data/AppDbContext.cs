@@ -13,5 +13,6 @@ namespace CRM.Api.Data
         public DbSet<Role> Roles { get; set; }
         public DbSet<Ticket> Tickets { get; set; }
         public DbSet<PriorityList> Priorities { get; set; }
+        public DbSet<TicketAttachment> TicketAttachments { get; set; }
     }
 }

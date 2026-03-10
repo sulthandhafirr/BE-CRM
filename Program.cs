@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using CRM.Api.Services;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -31,8 +32,27 @@ builder.Services.AddSwaggerGen(options =>
 // Add HttpClient for DeepSeek API
 builder.Services.AddHttpClient();
 
+var defaultConnectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("DefaultConnection is not configured");
+
+var dbConnectionBuilder = new NpgsqlConnectionStringBuilder(defaultConnectionString)
+{
+    // Supabase pooler + EF write bursts can invalidate pooled connectors in this app.
+    Pooling = false,
+    Multiplexing = false,
+};
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(dbConnectionBuilder.ConnectionString,
+        npgsqlOptions =>
+        {
+            npgsqlOptions.MaxBatchSize(1);
+            npgsqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(30),
+                errorCodesToAdd: null);
+            npgsqlOptions.CommandTimeout(60);
+        }));
 
 builder.Services.AddCors(options =>
 {
@@ -69,6 +89,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddScoped<RoleService>();
+
+var supabaseServiceKey = builder.Configuration["Supabase:ServiceKey"]
+    ?? throw new InvalidOperationException("Supabase Service Key is not configured");
+
+builder.Services.AddTransient(_ =>
+    new Supabase.Client(supabaseUrl!, supabaseServiceKey, new Supabase.SupabaseOptions
+    {
+        AutoConnectRealtime = false
+    })
+);
 
 var app = builder.Build();
 
