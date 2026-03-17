@@ -30,13 +30,14 @@ namespace CRM.Api.Controllers
         public async Task<IActionResult> GetMyTickets()
         {
             var role = await GetCurrentUserRole();
-            if (role != "customer") return Forbid(); // Only customers
+            if (role != "customer") return Forbid();
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
             var tickets = await _db.Tickets
                 .Include(t => t.Priority)
-                .Where(t => t.CustomerId == userId) // fetch only tickets of the logged-in customer
+                .Include(t => t.Agent)
+                .Where(t => t.CustomerId == userId)
                 .OrderByDescending(t => t.CreatedAt)
                 .AsNoTracking()
                 .Select(t => new
@@ -45,15 +46,74 @@ namespace CRM.Api.Controllers
                     subject = t.Subject,
                     description = t.Description,
                     status = t.Status,
-                    // priority = t.Priority != null ? t.Priority.PriorityName : "Analyzing...",
                     handler = t.Agent != null ? t.Agent.Name : "Not assigned yet",
-                    // slaDeadline = t.SlaDeadline,
-                    // slaBreached = t.SlaBreached,
                     createdAt = t.CreatedAt,
                 })
                 .ToListAsync();
 
             return Ok(tickets);
+        }
+
+        // GET /api/tickets/all — agent/admin gets ALL tickets
+        [HttpGet("all")]
+        public async Task<IActionResult> GetAllTickets()
+        {
+            var role = await GetCurrentUserRole();
+            if (role != "cs_agent" && role != "admin") return Forbid();
+
+            var tickets = await _db.Tickets
+                .Include(t => t.Priority)
+                .Include(t => t.Customer)
+                .Include(t => t.Agent)
+                .OrderByDescending(t => t.CreatedAt)
+                .AsNoTracking()
+                .Select(t => new
+                {
+                    id = t.Id,
+                    subject = t.Subject,
+                    description = t.Description,
+                    status = t.Status,
+                    priority = t.Priority != null ? t.Priority.PriorityName : null,
+                    customer = t.Customer != null ? t.Customer.Name : null,
+                    solver = t.Agent != null ? t.Agent.Name : null,
+                    createdAt = t.CreatedAt,
+                })
+                .ToListAsync();
+
+            return Ok(tickets);
+        }
+
+        // PUT /api/tickets/{id} — agent updates a ticket (status, solver/agent)
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateTicket(long id, [FromBody] UpdateTicketRequest request)
+        {
+            var role = await GetCurrentUserRole();
+            if (role != "cs_agent" && role != "admin") return Forbid();
+
+            var ticket = await _db.Tickets.FindAsync(id);
+            if (ticket == null) return NotFound("Ticket not found");
+
+            if (request.Status != null)
+                ticket.Status = request.Status;
+
+            await _db.SaveChangesAsync();
+            return Ok(new { message = "Ticket updated successfully" });
+        }
+
+        // DELETE /api/tickets/{id} — agent/admin deletes a ticket
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteTicket(long id)
+        {
+            var role = await GetCurrentUserRole();
+            if (role != "cs_agent" && role != "admin") return Forbid();
+
+            var ticket = await _db.Tickets.FindAsync(id);
+            if (ticket == null) return NotFound("Ticket not found");
+
+            _db.Tickets.Remove(ticket);
+            await _db.SaveChangesAsync();
+
+            return Ok(new { message = "Ticket deleted successfully" });
         }
 
         // GET /api/tickets/upload-url - generate signed upload URLs for attachments
@@ -82,7 +142,6 @@ namespace CRM.Api.Controllers
 
             foreach (var file in request.Files)
             {
-                // var filePath = $"temp/{Guid.NewGuid()}_{file.FileName}";
                 var filePath = $"{request.TicketId}/{Guid.NewGuid()}_{file.FileName}";
                 var requestUrl = $"{supabaseUrl}/storage/v1/object/upload/sign/ticket-attachment/{filePath}";
 
@@ -134,10 +193,8 @@ namespace CRM.Api.Controllers
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-            // For now assign Medium priority
-            // Replace this with AI logic later
             var priorityId = 2;
-            var slaDeadline = DateTime.UtcNow.AddHours(24); // Normal = 24 hours
+            var slaDeadline = DateTime.UtcNow.AddHours(24);
 
             var ticket = new Ticket
             {
@@ -188,6 +245,13 @@ namespace CRM.Api.Controllers
             return Ok(new { message = "Attachments saved!" });
         }
 
+        // ── Request models ────────────────────────────────────────────────────
+
+        public class UpdateTicketRequest
+        {
+            public string? Status { get; set; }
+        }
+
         public class AttachmentInfo
         {
             public string? FilePath { get; set; }
@@ -204,7 +268,6 @@ namespace CRM.Api.Controllers
         public class FileRequest
         {
             public string? FileName { get; set; }
-            // public string? ContentType { get; set; }
         }
 
         public class UploadUrlRequest
