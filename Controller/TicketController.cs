@@ -37,7 +37,7 @@ namespace CRM.Api.Controllers
             var tickets = await _db.Tickets
                 .Include(t => t.Priority)
                 .Include(t => t.Agent)
-                .Where(t => t.CustomerId == userId)
+                .Where(t => t.CustomerId == userId && t.Status != "Solved")
                 .OrderByDescending(t => t.CreatedAt)
                 .AsNoTracking()
                 .Select(t => new
@@ -48,6 +48,35 @@ namespace CRM.Api.Controllers
                     status = t.Status,
                     handler = t.Agent != null ? t.Agent.Name : "Not assigned yet",
                     createdAt = t.CreatedAt,
+                })
+                .ToListAsync();
+
+            return Ok(tickets);
+        }
+
+        // GET /api/tickets/history — customer gets their solved ticket history
+        [HttpGet("history")]
+        public async Task<IActionResult> GetMyTicketHistory()
+        {
+            var role = await GetCurrentUserRole();
+            if (role != "customer") return Forbid();
+
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+            var tickets = await _db.Tickets
+                .Include(t => t.Priority)
+                .Where(t => t.CustomerId == userId && t.Status == "Solved")
+                .OrderByDescending(t => t.ResolvedAt)
+                .AsNoTracking()
+                .Select(t => new
+                {
+                    id = t.Id,
+                    subject = t.Subject,
+                    description = t.Description,
+                    status = t.Status,
+                    handler = t.Agent != null ? t.Agent.Name : "Not assigned yet",
+                    createdAt = t.CreatedAt,
+                    resolvedAt = t.ResolvedAt,
                 })
                 .ToListAsync();
 
