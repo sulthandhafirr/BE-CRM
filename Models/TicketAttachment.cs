@@ -11,6 +11,9 @@ namespace CRM.Api.Models
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public long Id { get; set; }
 
+        [ForeignKey("TicketId")]
+        public Ticket? Ticket { get; set; }
+        
         [Column("ticket_id")]
         public long TicketId { get; set; }
 
@@ -25,8 +28,5 @@ namespace CRM.Api.Models
 
         [Column("uploaded_at")]
         public DateTime UploadedAt { get; set; }
-
-        [ForeignKey("TicketId")]
-        public Ticket? Ticket { get; set; }
     }
 }

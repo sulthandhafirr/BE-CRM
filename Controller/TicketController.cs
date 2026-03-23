@@ -83,6 +83,89 @@ namespace CRM.Api.Controllers
             return Ok(tickets);
         }
 
+        // GET /api/tickets/{id} — get ticket detiails (customer) maybe other roles
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetTicketById(long id)
+        {
+            var role = await GetCurrentUserRole();
+            if (role != "customer") return Forbid();
+
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+            var ticket = await _db.Tickets
+                .Include(t => t.Priority)
+                .Include(t => t.Attachments)
+                .Where(t => t.Id == id && t.CustomerId == userId)
+                .AsNoTracking()
+                .Select(t => new
+                {
+                    id = t.Id,
+                    subject = t.Subject,
+                    description = t.Description,
+                    status = t.Status,
+                    // priority = t.Priority != null ? t.Priority.PriorityName : "Analyzing...",
+                    handler = t.Agent != null ? t.Agent.Name : "Not assigned yet",
+                    createdAt = t.CreatedAt,
+                    resolvedAt = t.ResolvedAt,
+                    attachments = t.Attachments.Select(a => new
+                    {
+                        id = a.Id,
+                        fileName = a.FileName,
+                        fileUrl = a.FileUrl,
+                        fileSize = a.FileSize,
+                        uploadedAt = a.UploadedAt,
+                    }).ToList()
+                })
+                .FirstOrDefaultAsync();
+
+            if (ticket == null) return NotFound();
+
+            return Ok(ticket);
+        }
+
+        // GET /api/tickets/{ticketId}/attachments/{attachmentId}/download-url — get signed download URL for an attachment
+        [HttpGet("{ticketId}/attachments/{attachmentId}/download-url")]
+        public async Task<IActionResult> GetDownloadUrl(long ticketId, long attachmentId)
+        {
+            var role = await GetCurrentUserRole();
+            if (role != "customer") return Forbid();
+
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+            // Make sure the attachment belongs to this customer's ticket
+            var attachment = await _db.TicketAttachments
+                .Include(a => a.Ticket)
+                .FirstOrDefaultAsync(a => a.Id == attachmentId && a.TicketId == ticketId && a.Ticket!.CustomerId == userId);
+
+            if (attachment == null) return NotFound();
+
+            var supabaseUrl = _config["Supabase:Url"];
+            var serviceKey = _config["Supabase:ServiceKey"];
+            var httpClient = _httpClientFactory.CreateClient();
+
+            // Extract file path from the stored fileUrl
+            var filePath = attachment.FileUrl!.Replace($"{supabaseUrl}/storage/v1/object/public/ticket-attachment/", "");
+
+            var requestUrl = $"{supabaseUrl}/storage/v1/object/sign/ticket-attachment/{filePath}";
+            var requestBody = new StringContent(
+                System.Text.Json.JsonSerializer.Serialize(new { expiresIn = 300 }), // 5 minutes
+                System.Text.Encoding.UTF8,
+                "application/json"
+            );
+
+            var request = new HttpRequestMessage(HttpMethod.Post, requestUrl);
+            request.Headers.Add("Authorization", $"Bearer {serviceKey}");
+            request.Content = requestBody;
+
+            var response = await httpClient.SendAsync(request);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            var json = System.Text.Json.JsonDocument.Parse(responseBody);
+            var signedUrl = json.RootElement.GetProperty("signedURL").GetString();
+
+            return Ok(new { signedUrl = $"{supabaseUrl}/storage/v1{signedUrl}" });
+        }
+
         // GET /api/tickets/all — agent/admin gets ALL tickets
         [HttpGet("all")]
         public async Task<IActionResult> GetAllTickets()
@@ -243,6 +326,7 @@ namespace CRM.Api.Controllers
             return Ok(new { message = "Ticket created successfully!", ticketId = ticket.Id });
         }
 
+        // POST /api/tickets/{ticketId}/attachments — save attachment metadata after upload
         [HttpPost("{ticketId}/attachments")]
         public async Task<IActionResult> SaveAttachments(long ticketId, [FromBody] List<AttachmentInfo> attachments)
         {
@@ -264,6 +348,11 @@ namespace CRM.Api.Controllers
 
             foreach (var attachment in attachments)
             {
+
+                // The fileUrl is kinda wrong because the bucket is private
+                // while the url is "../object/public", when access the link it will error 403
+                // but just leave it as that
+
                 var fileUrl = $"{supabaseUrl}/storage/v1/object/public/ticket-attachment/{attachment.FilePath}";
 
                 await _db.Database.ExecuteSqlInterpolatedAsync($@"
