@@ -52,7 +52,8 @@ namespace CRM.Api.Models
         // public Profile? Customer { get; set; }
         // public Profile? Agent { get; set; }
         public PriorityList? Priority { get; set; }
-
         public ICollection<TicketAttachment> Attachments { get; set; } = new List<TicketAttachment>();
+        public ICollection<TicketComment> Comments { get; set; } = new List<TicketComment>();
+
     }
 }

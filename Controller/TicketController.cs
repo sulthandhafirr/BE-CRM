@@ -165,7 +165,6 @@ namespace CRM.Api.Controllers
 
             return Ok(new { signedUrl = $"{supabaseUrl}/storage/v1{signedUrl}" });
         }
-
         // GET /api/tickets/all — agent/admin gets ALL tickets
         [HttpGet("all")]
         public async Task<IActionResult> GetAllTickets()
@@ -363,6 +362,81 @@ namespace CRM.Api.Controllers
             return Ok(new { message = "Attachments saved!" });
         }
 
+        // POST /api/tickets/{ticketId}/comments — create a new comment
+        [HttpPost("{ticketId}/comments")]
+        public async Task<IActionResult> CreateComment(long ticketId, [FromBody] CreateTicketCommentRequest request)
+        {
+            var role = await GetCurrentUserRole();
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+            if (string.IsNullOrWhiteSpace(request.Message))
+                return BadRequest("Message is required");
+
+            var ticket = await _db.Tickets
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == ticketId);
+
+            if (ticket == null) return NotFound("Ticket not found");
+
+            if (role == "customer" && ticket.CustomerId != userId) return Forbid();
+            if ((role == "cs_agent" || role == "technician") && ticket.AgentId != userId) return Forbid();
+
+            var comment = new TicketComment
+            {
+                TicketId = ticketId,
+                SenderId = userId,
+                Message = request.Message.Trim(),
+                CreatedAt = DateTime.UtcNow,
+            };
+
+            _db.TicketComments.Add(comment);
+            await _db.SaveChangesAsync();
+
+            return Created($"/api/tickets/{ticketId}/comments/{comment.Id}", new
+            {
+                id = comment.Id,
+                ticketId = comment.TicketId,
+                senderId = comment.SenderId,
+                message = comment.Message,
+                createdAt = comment.CreatedAt,
+            });
+        }
+
+        // GET /api/tickets/{ticketId}/comments — get comments for a ticket
+        [HttpGet("{ticketId}/comments")]
+        public async Task<IActionResult> GetComments(long ticketId)
+        {
+            var role = await GetCurrentUserRole();
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+            var ticket = await _db.Tickets
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == ticketId);
+
+            if (ticket == null) return NotFound("Ticket not found");
+
+            if (role == "customer" && ticket.CustomerId != userId) return Forbid();
+            if ((role == "cs_agent" || role == "technician") && ticket.AgentId != userId) return Forbid();
+
+            var comments = await _db.TicketComments
+                .Include(c => c.Sender)
+                .Where(c => c.TicketId == ticketId)
+                .OrderBy(c => c.CreatedAt)
+                .AsNoTracking()
+                .Select(c => new
+                {
+                    id = c.Id,
+                    ticketId = c.TicketId,
+                    senderId = c.SenderId,
+                    senderName = c.Sender != null ? c.Sender.Name : null,
+                    message = c.Message,
+                    createdAt = c.CreatedAt,
+                })
+                .ToListAsync();
+
+            return Ok(comments);
+        }
+
         // ── Request models ────────────────────────────────────────────────────
 
         public class UpdateTicketRequest
@@ -392,6 +466,11 @@ namespace CRM.Api.Controllers
         {
             public long TicketId { get; set; }
             public List<FileRequest> Files { get; set; } = new();
+        }
+
+        public class CreateTicketCommentRequest
+        {
+            public string? Message { get; set; }
         }
     }
 }
