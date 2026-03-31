@@ -24,9 +24,9 @@ namespace CRM.Api.Controllers
         [HttpGet("stats")]
         public async Task<IActionResult> GetStats()
         {
-            var role = await GetCurrentUserRole();
-            if (role != "cs_agent" && role != "admin" && role != "customer")
-                return Forbid();
+            // var role = await GetCurrentUserRole();
+            // if (role != "cs_agent" && role != "admin" && role != "customer")
+            //     return Forbid();
 
             // Sequential await — EF Core tidak support concurrent queries pada DbContext yang sama
             var totalCsAgent    = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 2);
