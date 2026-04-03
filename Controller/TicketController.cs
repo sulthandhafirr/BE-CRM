@@ -5,6 +5,7 @@ using System.Security.Claims;
 using CRM.Api.Data;
 using CRM.Api.Models;
 using CRM.Api.Services;
+using System.Text.Json.Serialization;
 
 namespace CRM.Api.Controllers
 {
@@ -83,6 +84,47 @@ namespace CRM.Api.Controllers
             return Ok(tickets);
         }
 
+        [HttpGet("my-solved")]
+        public async Task<IActionResult> GetMySolvedTickets()
+        {
+            var role = await GetCurrentUserRole();
+            if (role != "cs_agent" && role != "admin") return Forbid();
+
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+            var tickets = await _db.Tickets
+                .Include(t => t.Priority)
+                .Include(t => t.Customer)
+                .Include(t => t.Agent)
+                .Include(t => t.Attachments)
+                .Where(t => t.AgentId == userId && t.Status == "Solved")
+                .OrderByDescending(t => t.ResolvedAt)
+                .AsNoTracking()
+                .Select(t => new
+                {
+                    id          = t.Id,
+                    subject     = t.Subject,
+                    description = t.Description,
+                    status      = t.Status,
+                    priority    = t.Priority != null ? t.Priority.PriorityName : null,
+                    customer    = t.Customer != null ? t.Customer.Name : null,
+                    solver      = t.Agent != null ? t.Agent.Name : null,
+                    handler     = t.Agent != null ? t.Agent.Name : null,
+                    createdAt   = t.CreatedAt,
+                    resolvedAt  = t.ResolvedAt,
+                    attachments = t.Attachments.Select(a => new
+                    {
+                        id         = a.Id,
+                        fileName   = a.FileName,
+                        fileSize   = a.FileSize,
+                        uploadedAt = a.UploadedAt,
+                    }).ToList(),
+                })
+                .ToListAsync();
+
+            return Ok(tickets);
+        }
+
         // GET /api/tickets/{id} — get ticket detiails (customer) maybe other roles
         [HttpGet("{id}")]
         public async Task<IActionResult> GetTicketById(long id)
@@ -127,15 +169,9 @@ namespace CRM.Api.Controllers
         [HttpGet("{ticketId}/attachments/{attachmentId}/download-url")]
         public async Task<IActionResult> GetDownloadUrl(long ticketId, long attachmentId)
         {
-            var role = await GetCurrentUserRole();
-            if (role != "customer") return Forbid();
-
-            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-
-            // Make sure the attachment belongs to this customer's ticket
+            // Izinkan semua role yang sudah login
             var attachment = await _db.TicketAttachments
-                .Include(a => a.Ticket)
-                .FirstOrDefaultAsync(a => a.Id == attachmentId && a.TicketId == ticketId && a.Ticket!.CustomerId == userId);
+                .FirstOrDefaultAsync(a => a.Id == attachmentId && a.TicketId == ticketId);
 
             if (attachment == null) return NotFound();
 
@@ -143,12 +179,11 @@ namespace CRM.Api.Controllers
             var serviceKey = _config["Supabase:ServiceKey"];
             var httpClient = _httpClientFactory.CreateClient();
 
-            // Extract file path from the stored fileUrl
             var filePath = attachment.FileUrl!.Replace($"{supabaseUrl}/storage/v1/object/public/ticket-attachment/", "");
 
             var requestUrl = $"{supabaseUrl}/storage/v1/object/sign/ticket-attachment/{filePath}";
             var requestBody = new StringContent(
-                System.Text.Json.JsonSerializer.Serialize(new { expiresIn = 300 }), // 5 minutes
+                System.Text.Json.JsonSerializer.Serialize(new { expiresIn = 300 }),
                 System.Text.Encoding.UTF8,
                 "application/json"
             );
@@ -165,6 +200,7 @@ namespace CRM.Api.Controllers
 
             return Ok(new { signedUrl = $"{supabaseUrl}/storage/v1{signedUrl}" });
         }
+
         // GET /api/tickets/all — agent/admin gets ALL tickets
         [HttpGet("all")]
         public async Task<IActionResult> GetAllTickets()
@@ -176,18 +212,26 @@ namespace CRM.Api.Controllers
                 .Include(t => t.Priority)
                 .Include(t => t.Customer)
                 .Include(t => t.Agent)
+                .Include(t => t.Attachments)   // ← tambah ini
                 .OrderByDescending(t => t.CreatedAt)
                 .AsNoTracking()
                 .Select(t => new
                 {
-                    id = t.Id,
-                    subject = t.Subject,
+                    id          = t.Id,
+                    subject     = t.Subject,
                     description = t.Description,
-                    status = t.Status,
-                    priority = t.Priority != null ? t.Priority.PriorityName : null,
-                    customer = t.Customer != null ? t.Customer.Name : null,
-                    solver = t.Agent != null ? t.Agent.Name : null,
-                    createdAt = t.CreatedAt,
+                    status      = t.Status,
+                    priority    = t.Priority != null ? t.Priority.PriorityName : null,
+                    customer    = t.Customer != null ? t.Customer.Name : null,
+                    solver      = t.Agent != null ? t.Agent.Name : null,
+                    createdAt   = t.CreatedAt,
+                    attachments = t.Attachments.Select(a => new   // ← tambah ini
+                    {
+                        id         = a.Id,
+                        fileName   = a.FileName,
+                        fileSize   = a.FileSize,
+                        uploadedAt = a.UploadedAt,
+                    }).ToList(),
                 })
                 .ToListAsync();
 
@@ -207,8 +251,26 @@ namespace CRM.Api.Controllers
             if (request.Status != null)
                 ticket.Status = request.Status;
 
+            if (request.ResolvedAt.HasValue)
+                ticket.ResolvedAt = request.ResolvedAt.Value;
+
+            // ← FIX: simpan AgentId dari JWT jika takeAction (agentId dikirim sebagai true/flag)
+            if (request.AgentId.HasValue)
+                ticket.AgentId = request.AgentId.Value;
+
             await _db.SaveChangesAsync();
-            return Ok(new { message = "Ticket updated successfully" });
+
+            // Reload agent name untuk dikembalikan ke frontend
+            await _db.Entry(ticket).Reference(t => t.Agent).LoadAsync();
+
+            return Ok(new
+            {
+                id         = ticket.Id,
+                status     = ticket.Status,
+                solver     = ticket.Agent != null ? ticket.Agent.Name : null,
+                resolvedAt = ticket.ResolvedAt,
+                resolved_at = ticket.ResolvedAt,
+            });
         }
 
         // DELETE /api/tickets/{id} — agent/admin deletes a ticket
@@ -227,33 +289,47 @@ namespace CRM.Api.Controllers
             return Ok(new { message = "Ticket deleted successfully" });
         }
 
-        // GET /api/tickets/upload-url - generate signed upload URLs for attachments
+        // POST /api/tickets/upload-url — generate signed upload URLs (customer & agent)
         [HttpPost("upload-url")]
         public async Task<IActionResult> GetUploadUrls([FromBody] UploadUrlRequest request)
         {
             var role = await GetCurrentUserRole();
-            if (role != "customer") return Forbid();
+
+            // ← FIX: izinkan customer DAN agent
+            if (role != "customer" && role != "cs_agent" && role != "admin")
+                return Forbid();
 
             if (request.Files == null || request.Files.Count == 0)
                 return BadRequest("Files are required");
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-            var ownsTicket = await _db.Tickets
-                .AsNoTracking()
-                .AnyAsync(t => t.Id == request.TicketId && t.CustomerId == userId);
 
-            if (!ownsTicket)
+            // Validasi kepemilikan/akses ticket sesuai role
+            bool hasAccess;
+            if (role == "customer")
+            {
+                hasAccess = await _db.Tickets
+                    .AsNoTracking()
+                    .AnyAsync(t => t.Id == request.TicketId && t.CustomerId == userId);
+            }
+            else // cs_agent atau admin
+            {
+                hasAccess = await _db.Tickets
+                    .AsNoTracking()
+                    .AnyAsync(t => t.Id == request.TicketId);
+            }
+
+            if (!hasAccess)
                 return NotFound("Ticket not found or access denied");
 
             var supabaseUrl = _config["Supabase:Url"];
-            var serviceKey = _config["Supabase:ServiceKey"];
-            var httpClient = _httpClientFactory.CreateClient();
-
-            var results = new List<object>();
+            var serviceKey  = _config["Supabase:ServiceKey"];
+            var httpClient  = _httpClientFactory.CreateClient();
+            var results     = new List<object>();
 
             foreach (var file in request.Files)
             {
-                var filePath = $"{request.TicketId}/{Guid.NewGuid()}_{file.FileName}";
+                var filePath   = $"{request.TicketId}/{Guid.NewGuid()}_{file.FileName}";
                 var requestUrl = $"{supabaseUrl}/storage/v1/object/upload/sign/ticket-attachment/{filePath}";
 
                 var requestBody = new StringContent(
@@ -266,19 +342,19 @@ namespace CRM.Api.Controllers
                 req.Headers.Add("Authorization", $"Bearer {serviceKey}");
                 req.Content = requestBody;
 
-                var response = await httpClient.SendAsync(req);
+                var response     = await httpClient.SendAsync(req);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (!response.IsSuccessStatusCode)
                     return StatusCode((int)response.StatusCode, new { message = "Failed to generate upload URL", detail = responseBody });
 
                 var json = System.Text.Json.JsonDocument.Parse(responseBody);
-                if (!json.RootElement.TryGetProperty("url", out var urlElement) ||
+                if (!json.RootElement.TryGetProperty("url",   out var urlElement) ||
                     !json.RootElement.TryGetProperty("token", out var tokenElement))
                     return StatusCode(502, new { message = "Invalid response from storage service" });
 
                 var signedUrl = urlElement.GetString();
-                var token = tokenElement.GetString();
+                var token     = tokenElement.GetString();
 
                 if (string.IsNullOrWhiteSpace(signedUrl) || string.IsNullOrWhiteSpace(token))
                     return StatusCode(502, new { message = "Storage service returned empty URL/token" });
@@ -330,39 +406,75 @@ namespace CRM.Api.Controllers
         public async Task<IActionResult> SaveAttachments(long ticketId, [FromBody] List<AttachmentInfo> attachments)
         {
             var role = await GetCurrentUserRole();
-            if (role != "customer") return Forbid();
+
+            // ← FIX: izinkan customer DAN agent
+            if (role != "customer" && role != "cs_agent" && role != "admin")
+                return Forbid();
 
             if (attachments == null || attachments.Count == 0)
                 return BadRequest("Attachments are required");
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-            var ownsTicket = await _db.Tickets
-                .AsNoTracking()
-                .AnyAsync(t => t.Id == ticketId && t.CustomerId == userId);
 
-            if (!ownsTicket)
+            // Validasi akses sesuai role
+            bool hasAccess;
+            if (role == "customer")
+            {
+                hasAccess = await _db.Tickets
+                    .AsNoTracking()
+                    .AnyAsync(t => t.Id == ticketId && t.CustomerId == userId);
+            }
+            else
+            {
+                hasAccess = await _db.Tickets
+                    .AsNoTracking()
+                    .AnyAsync(t => t.Id == ticketId);
+            }
+
+            if (!hasAccess)
                 return NotFound("Ticket not found or access denied");
 
             var supabaseUrl = _config["Supabase:Url"];
 
             foreach (var attachment in attachments)
             {
-
-                // The fileUrl is kinda wrong because the bucket is private
-                // while the url is "../object/public", when access the link it will error 403
-                // but just leave it as that
-
                 var fileUrl = $"{supabaseUrl}/storage/v1/object/public/ticket-attachment/{attachment.FilePath}";
 
                 await _db.Database.ExecuteSqlInterpolatedAsync($@"
-            INSERT INTO public.ticket_attachment (ticket_id, file_url, file_name, file_size, uploaded_at)
-            VALUES ({ticketId}, {fileUrl}, {attachment.FileName}, {attachment.FileSize}, {DateTime.UtcNow})");
+                    INSERT INTO public.ticket_attachment (ticket_id, file_url, file_name, file_size, uploaded_at)
+                    VALUES ({ticketId}, {fileUrl}, {attachment.FileName}, {attachment.FileSize}, {DateTime.UtcNow})");
             }
 
             return Ok(new { message = "Attachments saved!" });
         }
 
-        // POST /api/tickets/{ticketId}/comments — create a new comment
+        // POST /api/tickets/{id}/take-action — agent mengambil ticket untuk dirinya sendiri
+        [HttpPost("{id}/take-action")]
+        public async Task<IActionResult> TakeAction(long id)
+        {
+            var role = await GetCurrentUserRole();
+            if (role != "cs_agent" && role != "admin") return Forbid();
+
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+            var ticket = await _db.Tickets.FindAsync(id);
+            if (ticket == null) return NotFound("Ticket not found");
+
+            ticket.AgentId = userId;
+            ticket.Status  = "Progress";
+
+            await _db.SaveChangesAsync();
+            await _db.Entry(ticket).Reference(t => t.Agent).LoadAsync();
+
+            return Ok(new
+            {
+                id     = ticket.Id,
+                status = ticket.Status,
+                solver = ticket.Agent != null ? ticket.Agent.Name : null,
+            });
+        }
+
+        // POST /api/tickets/{ticketId}/comments
         [HttpPost("{ticketId}/comments")]
         public async Task<IActionResult> CreateComment(long ticketId, [FromBody] CreateTicketCommentRequest request)
         {
@@ -377,15 +489,14 @@ namespace CRM.Api.Controllers
                 .FirstOrDefaultAsync(t => t.Id == ticketId);
 
             if (ticket == null) return NotFound("Ticket not found");
-
             if (role == "customer" && ticket.CustomerId != userId) return Forbid();
             if ((role == "cs_agent" || role == "technician") && ticket.AgentId != userId) return Forbid();
 
             var comment = new TicketComment
             {
-                TicketId = ticketId,
-                SenderId = userId,
-                Message = request.Message.Trim(),
+                TicketId  = ticketId,
+                SenderId  = userId,
+                Message   = request.Message.Trim(),
                 CreatedAt = DateTime.UtcNow,
             };
 
@@ -394,15 +505,17 @@ namespace CRM.Api.Controllers
 
             return Created($"/api/tickets/{ticketId}/comments/{comment.Id}", new
             {
-                id = comment.Id,
-                ticketId = comment.TicketId,
-                senderId = comment.SenderId,
-                message = comment.Message,
-                createdAt = comment.CreatedAt,
+                id         = comment.Id,
+                ticketId   = comment.TicketId,
+                senderId   = comment.SenderId,
+                senderName = (string?)null, // sender baru, belum di-load
+                senderRole = role,          // ← pakai role dari JWT langsung
+                message    = comment.Message,
+                createdAt  = comment.CreatedAt,
             });
         }
 
-        // GET /api/tickets/{ticketId}/comments — get comments for a ticket
+        // GET /api/tickets/{ticketId}/comments
         [HttpGet("{ticketId}/comments")]
         public async Task<IActionResult> GetComments(long ticketId)
         {
@@ -414,7 +527,6 @@ namespace CRM.Api.Controllers
                 .FirstOrDefaultAsync(t => t.Id == ticketId);
 
             if (ticket == null) return NotFound("Ticket not found");
-
             if (role == "customer" && ticket.CustomerId != userId) return Forbid();
             if ((role == "cs_agent" || role == "technician") && ticket.AgentId != userId) return Forbid();
 
@@ -425,12 +537,12 @@ namespace CRM.Api.Controllers
                 .AsNoTracking()
                 .Select(c => new
                 {
-                    id = c.Id,
-                    ticketId = c.TicketId,
-                    senderId = c.SenderId,
+                    id         = c.Id,
+                    ticketId   = c.TicketId,
+                    senderId   = c.SenderId,
                     senderName = c.Sender != null ? c.Sender.Name : null,
-                    message = c.Message,
-                    createdAt = c.CreatedAt,
+                    message    = c.Message,
+                    createdAt  = c.CreatedAt,
                 })
                 .ToListAsync();
 
@@ -441,7 +553,10 @@ namespace CRM.Api.Controllers
 
         public class UpdateTicketRequest
         {
-            public string? Status { get; set; }
+            public string?   Status     { get; set; }
+            public Guid?     AgentId    { get; set; }   // ← tambahkan ini
+            [JsonPropertyName("resolvedAt")]
+            public DateTime? ResolvedAt { get; set; }
         }
 
         public class AttachmentInfo
