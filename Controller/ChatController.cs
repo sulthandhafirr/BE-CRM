@@ -41,15 +41,6 @@ namespace CRM.Api.Controllers
                     new { role = "system", content = "You are a helpful CRM AI assistant. You help users with customer relationship management tasks, ticket management, and general CRM queries. Be concise and professional." }
                 };
 
-                // Add history if available
-                if (request.History != null && request.History.Any())
-                {
-                    foreach (var msg in request.History)
-                    {
-                        messages.Add(new { role = msg.Role, content = msg.Content });
-                    }
-                }
-
                 // Add current message
                 messages.Add(new { role = "user", content = request.Message });
 
@@ -77,18 +68,49 @@ namespace CRM.Api.Controllers
                 }
 
                 var responseContent = await response.Content.ReadAsStringAsync();
-                var deepseekResponse = JsonSerializer.Deserialize<DeepSeekResponse>(responseContent);
+                using var document = JsonDocument.Parse(responseContent);
 
-                if (deepseekResponse?.Choices == null || !deepseekResponse.Choices.Any())
+                if (!TryGetPropertyIgnoreCase(document.RootElement, "choices", out var choicesElement)
+                    || choicesElement.ValueKind != JsonValueKind.Array
+                    || choicesElement.GetArrayLength() == 0)
                 {
-                    return BadRequest(new ChatResponse 
-                    { 
-                        Success = false, 
-                        Error = "No response from DeepSeek API" 
+                    return BadRequest(new ChatResponse
+                    {
+                        Success = false,
+                        Error = "No response from DeepSeek API"
                     });
                 }
 
-                var assistantMessage = deepseekResponse.Choices[0].Message.Content;
+                var firstChoice = choicesElement[0];
+                if (!TryGetPropertyIgnoreCase(firstChoice, "message", out var messageElement)
+                    || messageElement.ValueKind != JsonValueKind.Object)
+                {
+                    return BadRequest(new ChatResponse
+                    {
+                        Success = false,
+                        Error = "Invalid response shape from DeepSeek API"
+                    });
+                }
+
+                if (!TryGetPropertyIgnoreCase(messageElement, "content", out var contentElement))
+                {
+                    return BadRequest(new ChatResponse
+                    {
+                        Success = false,
+                        Error = "DeepSeek message content is missing"
+                    });
+                }
+
+                var assistantMessage = contentElement.GetString() ?? string.Empty;
+
+                if (string.IsNullOrWhiteSpace(assistantMessage))
+                {
+                    return BadRequest(new ChatResponse
+                    {
+                        Success = false,
+                        Error = "DeepSeek returned empty content"
+                    });
+                }
 
                 return Ok(new ChatResponse 
                 { 
@@ -105,21 +127,20 @@ namespace CRM.Api.Controllers
                 });
             }
         }
-    }
 
-    // DeepSeek API Response Models
-    public class DeepSeekResponse
-    {
-        public List<Choice>? Choices { get; set; }
-    }
+        private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement value)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
 
-    public class Choice
-    {
-        public Message Message { get; set; } = new Message();
-    }
-
-    public class Message
-    {
-        public string Content { get; set; } = string.Empty;
+            value = default;
+            return false;
+        }
     }
 }

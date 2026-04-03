@@ -6,6 +6,8 @@ using Microsoft.OpenApi;
 using CRM.Api.Services;
 using Npgsql;
 
+LoadDotEnvFromKnownLocations();
+
 var builder = WebApplication.CreateBuilder(args);
 
 var supabaseUrl = builder.Configuration["Supabase:Url"];
@@ -58,7 +60,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
+        policy.WithOrigins("http://localhost:5173", "http://localhost:5174")
               .AllowAnyMethod()
               .AllowAnyHeader();
     });
@@ -117,3 +119,55 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+static void LoadDotEnvFromKnownLocations()
+{
+    var candidates = new[]
+    {
+        Path.Combine(Directory.GetCurrentDirectory(), ".env"),
+        Path.Combine(AppContext.BaseDirectory, ".env"),
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".env")),
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".env"))
+    };
+
+    foreach (var path in candidates.Distinct())
+    {
+        if (LoadDotEnv(path))
+        {
+            return;
+        }
+    }
+}
+
+static bool LoadDotEnv(string filePath)
+{
+    if (!File.Exists(filePath))
+    {
+        return false;
+    }
+
+    foreach (var rawLine in File.ReadAllLines(filePath))
+    {
+        var line = rawLine.Trim();
+        if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#"))
+        {
+            continue;
+        }
+
+        var separatorIndex = line.IndexOf('=');
+        if (separatorIndex <= 0)
+        {
+            continue;
+        }
+
+        var key = line[..separatorIndex].Trim();
+        var value = line[(separatorIndex + 1)..].Trim().Trim('"');
+
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            Environment.SetEnvironmentVariable(key, value);
+        }
+    }
+
+    return true;
+}
