@@ -453,14 +453,19 @@ namespace CRM.Api.Controllers
             ticket.AgentId = userId;
             ticket.Status  = "Progress";
 
+            // Hanya isi first_response_at jika belum pernah diisi sebelumnya
+            if (ticket.FirstResponseAt == null)
+                ticket.FirstResponseAt = DateTime.UtcNow;
+
             await _db.SaveChangesAsync();
             await _db.Entry(ticket).Reference(t => t.Agent).LoadAsync();
 
             return Ok(new
             {
-                id     = ticket.Id,
-                status = ticket.Status,
-                solver = ticket.Agent != null ? ticket.Agent.Name : null,
+                id              = ticket.Id,
+                status          = ticket.Status,
+                solver          = ticket.Agent != null ? ticket.Agent.Name : null,
+                firstResponseAt = ticket.FirstResponseAt,
             });
         }
 
