@@ -84,19 +84,18 @@ namespace CRM.Api.Controllers
             return Ok(tickets);
         }
 
+        // GET /api/tickets/my-solved — agent gets their own solved tickets
         [HttpGet("my-solved")]
         public async Task<IActionResult> GetMySolvedTickets()
         {
             var role = await GetCurrentUserRole();
-            if (role != "cs_agent" && role != "admin") return Forbid();
+            if (role != "cs_agent" && role != "technician") return Forbid();
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
             var tickets = await _db.Tickets
                 .Include(t => t.Priority)
                 .Include(t => t.Customer)
-                .Include(t => t.Agent)
-                .Include(t => t.Attachments)
                 .Where(t => t.AgentId == userId && t.Status == "Solved")
                 .OrderByDescending(t => t.ResolvedAt)
                 .AsNoTracking()
@@ -108,17 +107,8 @@ namespace CRM.Api.Controllers
                     status      = t.Status,
                     priority    = t.Priority != null ? t.Priority.PriorityName : null,
                     customer    = t.Customer != null ? t.Customer.Name : null,
-                    solver      = t.Agent != null ? t.Agent.Name : null,
-                    handler     = t.Agent != null ? t.Agent.Name : null,
                     createdAt   = t.CreatedAt,
                     resolvedAt  = t.ResolvedAt,
-                    attachments = t.Attachments.Select(a => new
-                    {
-                        id         = a.Id,
-                        fileName   = a.FileName,
-                        fileSize   = a.FileSize,
-                        uploadedAt = a.UploadedAt,
-                    }).ToList(),
                 })
                 .ToListAsync();
 
