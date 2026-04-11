@@ -48,6 +48,12 @@ namespace CRM.Api.Models
 
         [ForeignKey("AgentId")]
         public Profile? Agent { get; set; }
+
+        [Column("technician_id")]
+        public Guid? TechnicianId { get; set; }
+
+        [ForeignKey("TechnicianId")]
+        public Profile? Technician { get; set; }
         // Navigation properties
         // public Profile? Customer { get; set; }
         // public Profile? Agent { get; set; }

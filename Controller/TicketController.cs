@@ -31,23 +31,33 @@ namespace CRM.Api.Controllers
         public async Task<IActionResult> GetMyTickets()
         {
             var role = await GetCurrentUserRole();
-            if (role != "customer") return Forbid();
+            if (role != "customer" && role != "technician") return Forbid();
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-            var tickets = await _db.Tickets
+            var query = _db.Tickets
                 .Include(t => t.Priority)
-                .Include(t => t.Agent)
-                .Where(t => t.CustomerId == userId && t.Status != "Solved")
-                .OrderByDescending(t => t.CreatedAt)
+                .Include(t => t.Agent)       // cs_agent
+                .Include(t => t.Technician)  // technician
                 .AsNoTracking()
+                .Where(t => t.Status != "Solved");
+
+            if (role == "customer")
+                query = query.Where(t => t.CustomerId == userId);
+            else
+                query = query.Where(t => t.TechnicianId == userId);
+
+            var tickets = await query
+                .OrderByDescending(t => t.CreatedAt)
                 .Select(t => new
                 {
                     id = t.Id,
                     subject = t.Subject,
+                    customer = t.Customer != null ? t.Customer.Name : null,
                     description = t.Description,
                     status = t.Status,
                     handler = t.Agent != null ? t.Agent.Name : "Not assigned yet",
+                    technician = t.Technician != null ? t.Technician.Name : "-",
                     createdAt = t.CreatedAt,
                 })
                 .ToListAsync();
@@ -101,14 +111,14 @@ namespace CRM.Api.Controllers
                 .AsNoTracking()
                 .Select(t => new
                 {
-                    id          = t.Id,
-                    subject     = t.Subject,
+                    id = t.Id,
+                    subject = t.Subject,
                     description = t.Description,
-                    status      = t.Status,
-                    priority    = t.Priority != null ? t.Priority.PriorityName : null,
-                    customer    = t.Customer != null ? t.Customer.Name : null,
-                    createdAt   = t.CreatedAt,
-                    resolvedAt  = t.ResolvedAt,
+                    status = t.Status,
+                    priority = t.Priority != null ? t.Priority.PriorityName : null,
+                    customer = t.Customer != null ? t.Customer.Name : null,
+                    createdAt = t.CreatedAt,
+                    resolvedAt = t.ResolvedAt,
                 })
                 .ToListAsync();
 
@@ -120,15 +130,22 @@ namespace CRM.Api.Controllers
         public async Task<IActionResult> GetTicketById(long id)
         {
             var role = await GetCurrentUserRole();
-            if (role != "customer") return Forbid();
+            if (role != "customer" && role != "technician") return Forbid();
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-            var ticket = await _db.Tickets
+            var query = _db.Tickets
                 .Include(t => t.Priority)
                 .Include(t => t.Attachments)
-                .Where(t => t.Id == id && t.CustomerId == userId)
-                .AsNoTracking()
+                .Where(t => t.Id == id)
+                .AsNoTracking();
+
+            if (role == "customer")
+                query = query.Where(t => t.CustomerId == userId);
+            else
+                query = query.Where(t => t.TechnicianId == userId);
+
+            var ticket = await query
                 .Select(t => new
                 {
                     id = t.Id,
@@ -137,6 +154,7 @@ namespace CRM.Api.Controllers
                     status = t.Status,
                     // priority = t.Priority != null ? t.Priority.PriorityName : "Analyzing...",
                     handler = t.Agent != null ? t.Agent.Name : "Not assigned yet",
+                    technician = t.Technician != null ? t.Technician.Name : "-",
                     createdAt = t.CreatedAt,
                     resolvedAt = t.ResolvedAt,
                     attachments = t.Attachments.Select(a => new
@@ -207,19 +225,19 @@ namespace CRM.Api.Controllers
                 .AsNoTracking()
                 .Select(t => new
                 {
-                    id          = t.Id,
-                    subject     = t.Subject,
+                    id = t.Id,
+                    subject = t.Subject,
                     description = t.Description,
-                    status      = t.Status,
-                    priority    = t.Priority != null ? t.Priority.PriorityName : null,
-                    customer    = t.Customer != null ? t.Customer.Name : null,
-                    solver      = t.Agent != null ? t.Agent.Name : null,
-                    createdAt   = t.CreatedAt,
+                    status = t.Status,
+                    priority = t.Priority != null ? t.Priority.PriorityName : null,
+                    customer = t.Customer != null ? t.Customer.Name : null,
+                    solver = t.Agent != null ? t.Agent.Name : null,
+                    createdAt = t.CreatedAt,
                     attachments = t.Attachments.Select(a => new   // ← tambah ini
                     {
-                        id         = a.Id,
-                        fileName   = a.FileName,
-                        fileSize   = a.FileSize,
+                        id = a.Id,
+                        fileName = a.FileName,
+                        fileSize = a.FileSize,
                         uploadedAt = a.UploadedAt,
                     }).ToList(),
                 })
@@ -255,9 +273,9 @@ namespace CRM.Api.Controllers
 
             return Ok(new
             {
-                id         = ticket.Id,
-                status     = ticket.Status,
-                solver     = ticket.Agent != null ? ticket.Agent.Name : null,
+                id = ticket.Id,
+                status = ticket.Status,
+                solver = ticket.Agent != null ? ticket.Agent.Name : null,
                 resolvedAt = ticket.ResolvedAt,
                 resolved_at = ticket.ResolvedAt,
             });
@@ -313,13 +331,13 @@ namespace CRM.Api.Controllers
                 return NotFound("Ticket not found or access denied");
 
             var supabaseUrl = _config["Supabase:Url"];
-            var serviceKey  = _config["Supabase:ServiceKey"];
-            var httpClient  = _httpClientFactory.CreateClient();
-            var results     = new List<object>();
+            var serviceKey = _config["Supabase:ServiceKey"];
+            var httpClient = _httpClientFactory.CreateClient();
+            var results = new List<object>();
 
             foreach (var file in request.Files)
             {
-                var filePath   = $"{request.TicketId}/{Guid.NewGuid()}_{file.FileName}";
+                var filePath = $"{request.TicketId}/{Guid.NewGuid()}_{file.FileName}";
                 var requestUrl = $"{supabaseUrl}/storage/v1/object/upload/sign/ticket-attachment/{filePath}";
 
                 var requestBody = new StringContent(
@@ -332,19 +350,19 @@ namespace CRM.Api.Controllers
                 req.Headers.Add("Authorization", $"Bearer {serviceKey}");
                 req.Content = requestBody;
 
-                var response     = await httpClient.SendAsync(req);
+                var response = await httpClient.SendAsync(req);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (!response.IsSuccessStatusCode)
                     return StatusCode((int)response.StatusCode, new { message = "Failed to generate upload URL", detail = responseBody });
 
                 var json = System.Text.Json.JsonDocument.Parse(responseBody);
-                if (!json.RootElement.TryGetProperty("url",   out var urlElement) ||
+                if (!json.RootElement.TryGetProperty("url", out var urlElement) ||
                     !json.RootElement.TryGetProperty("token", out var tokenElement))
                     return StatusCode(502, new { message = "Invalid response from storage service" });
 
                 var signedUrl = urlElement.GetString();
-                var token     = tokenElement.GetString();
+                var token = tokenElement.GetString();
 
                 if (string.IsNullOrWhiteSpace(signedUrl) || string.IsNullOrWhiteSpace(token))
                     return StatusCode(502, new { message = "Storage service returned empty URL/token" });
@@ -451,7 +469,7 @@ namespace CRM.Api.Controllers
             if (ticket == null) return NotFound("Ticket not found");
 
             ticket.AgentId = userId;
-            ticket.Status  = "Progress";
+            ticket.Status = "Progress";
 
             // Hanya isi first_response_at jika belum pernah diisi sebelumnya
             if (ticket.FirstResponseAt == null)
@@ -462,9 +480,9 @@ namespace CRM.Api.Controllers
 
             return Ok(new
             {
-                id              = ticket.Id,
-                status          = ticket.Status,
-                solver          = ticket.Agent != null ? ticket.Agent.Name : null,
+                id = ticket.Id,
+                status = ticket.Status,
+                solver = ticket.Agent != null ? ticket.Agent.Name : null,
                 firstResponseAt = ticket.FirstResponseAt,
             });
         }
@@ -484,14 +502,22 @@ namespace CRM.Api.Controllers
                 .FirstOrDefaultAsync(t => t.Id == ticketId);
 
             if (ticket == null) return NotFound("Ticket not found");
-            if (role == "customer" && ticket.CustomerId != userId) return Forbid();
-            if ((role == "cs_agent" || role == "technician") && ticket.AgentId != userId) return Forbid();
+
+            var isAuthorized = role switch
+            {
+                "customer" => ticket.CustomerId == userId,
+                "cs_agent" => ticket.AgentId == userId,
+                "technician" => ticket.TechnicianId == userId,
+                _ => false
+            };
+
+            if (!isAuthorized) return Forbid();
 
             var comment = new TicketComment
             {
-                TicketId  = ticketId,
-                SenderId  = userId,
-                Message   = request.Message.Trim(),
+                TicketId = ticketId,
+                SenderId = userId,
+                Message = request.Message.Trim(),
                 CreatedAt = DateTime.UtcNow,
             };
 
@@ -500,13 +526,13 @@ namespace CRM.Api.Controllers
 
             return Created($"/api/tickets/{ticketId}/comments/{comment.Id}", new
             {
-                id         = comment.Id,
-                ticketId   = comment.TicketId,
-                senderId   = comment.SenderId,
+                id = comment.Id,
+                ticketId = comment.TicketId,
+                senderId = comment.SenderId,
                 senderName = (string?)null, // sender baru, belum di-load
                 senderRole = role,          // ← pakai role dari JWT langsung
-                message    = comment.Message,
-                createdAt  = comment.CreatedAt,
+                message = comment.Message,
+                createdAt = comment.CreatedAt,
             });
         }
 
@@ -522,8 +548,17 @@ namespace CRM.Api.Controllers
                 .FirstOrDefaultAsync(t => t.Id == ticketId);
 
             if (ticket == null) return NotFound("Ticket not found");
-            if (role == "customer" && ticket.CustomerId != userId) return Forbid();
-            if ((role == "cs_agent" || role == "technician") && ticket.AgentId != userId) return Forbid();
+
+            var isAuthorized = role switch
+            {
+                "customer" => ticket.CustomerId == userId,
+                "cs_agent" => true,
+                "technician" => ticket.TechnicianId == userId,
+                "admin" => true,
+                _ => false
+            };
+
+            if (!isAuthorized) return Forbid();
 
             var comments = await _db.TicketComments
                 .Include(c => c.Sender)
@@ -532,12 +567,12 @@ namespace CRM.Api.Controllers
                 .AsNoTracking()
                 .Select(c => new
                 {
-                    id         = c.Id,
-                    ticketId   = c.TicketId,
-                    senderId   = c.SenderId,
+                    id = c.Id,
+                    ticketId = c.TicketId,
+                    senderId = c.SenderId,
                     senderName = c.Sender != null ? c.Sender.Name : null,
-                    message    = c.Message,
-                    createdAt  = c.CreatedAt,
+                    message = c.Message,
+                    createdAt = c.CreatedAt,
                 })
                 .ToListAsync();
 
@@ -548,8 +583,8 @@ namespace CRM.Api.Controllers
 
         public class UpdateTicketRequest
         {
-            public string?   Status     { get; set; }
-            public Guid?     AgentId    { get; set; }   // ← tambahkan ini
+            public string? Status { get; set; }
+            public Guid? AgentId { get; set; }   // ← tambahkan ini
             [JsonPropertyName("resolvedAt")]
             public DateTime? ResolvedAt { get; set; }
         }
