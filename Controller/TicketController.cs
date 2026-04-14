@@ -94,7 +94,7 @@ namespace CRM.Api.Controllers
             return Ok(tickets);
         }
 
-        // GET /api/tickets/my-solved — agent gets their own solved tickets
+        // GET /api/tickets/my-solved — agent and technician gets their own solved tickets (performance)
         [HttpGet("my-solved")]
         public async Task<IActionResult> GetMySolvedTickets()
         {
@@ -103,12 +103,25 @@ namespace CRM.Api.Controllers
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-            var tickets = await _db.Tickets
+            var query = _db.Tickets
                 .Include(t => t.Priority)
                 .Include(t => t.Customer)
-                .Where(t => t.AgentId == userId && t.Status == "Solved")
-                .OrderByDescending(t => t.ResolvedAt)
+                // .Include(t => t.Agent)
+                // .Include(t => t.Technician)
                 .AsNoTracking()
+                .Where(t => t.Status == "Solved");
+
+            if (role == "cs_agent")
+                query = query.Where(t => t.AgentId == userId);
+            else
+                query = query.Where(t => t.TechnicianId == userId);
+
+            var tickets = await query
+                // .Include(t => t.Priority)
+                // .Include(t => t.Customer)
+                // .Where(t => t.AgentId == userId && t.Status == "Solved")
+                .OrderByDescending(t => t.ResolvedAt)
+                // .AsNoTracking()
                 .Select(t => new
                 {
                     id = t.Id,
@@ -232,6 +245,7 @@ namespace CRM.Api.Controllers
                     priority = t.Priority != null ? t.Priority.PriorityName : null,
                     customer = t.Customer != null ? t.Customer.Name : null,
                     solver = t.Agent != null ? t.Agent.Name : null,
+                    technician = t.Technician != null ? t.Technician.Name : null,
                     createdAt = t.CreatedAt,
                     attachments = t.Attachments.Select(a => new   // ← tambah ini
                     {
