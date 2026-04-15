@@ -280,6 +280,9 @@ namespace CRM.Api.Controllers
             if (request.AgentId.HasValue)
                 ticket.AgentId = request.AgentId.Value;
 
+            if (request.TechnicianId.HasValue)
+                ticket.TechnicianId = request.TechnicianId.Value;
+
             await _db.SaveChangesAsync();
 
             // Reload agent name untuk dikembalikan ke frontend
@@ -501,6 +504,28 @@ namespace CRM.Api.Controllers
             });
         }
 
+        // GET /api/tickets/technicians — get all technicians (cs_agent only)
+        [HttpGet("technicians")]
+        public async Task<IActionResult> GetTechnicians()
+        {
+            var role = await GetCurrentUserRole();
+            if (role != "cs_agent" && role != "admin") return Forbid();
+
+            var technicians = await _db.Profiles
+                .Where(p => p.RoleId == 3)
+                .AsNoTracking()
+                .Select(p => new
+                {
+                    id = p.Id,
+                    name = p.Name,
+                    email = p.Email,
+                    position = p.Position,
+                })
+                .ToListAsync();
+
+            return Ok(technicians);
+        }
+
         // POST /api/tickets/{ticketId}/comments
         [HttpPost("{ticketId}/comments")]
         public async Task<IActionResult> CreateComment(long ticketId, [FromBody] CreateTicketCommentRequest request)
@@ -598,7 +623,12 @@ namespace CRM.Api.Controllers
         public class UpdateTicketRequest
         {
             public string? Status { get; set; }
-            public Guid? AgentId { get; set; }   // ← tambahkan ini
+            
+            public Guid? AgentId { get; set; }
+
+            [JsonPropertyName("technicianId")]
+            public Guid? TechnicianId { get; set; }
+            
             [JsonPropertyName("resolvedAt")]
             public DateTime? ResolvedAt { get; set; }
         }

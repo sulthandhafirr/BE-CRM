@@ -31,5 +31,8 @@ namespace CRM.Api.Models
         public int RoleId { get; set; }
 
         public Role? Role { get; set; }
+
+        [Column("Position")]
+        public string? Position { get; set; }
     }
 }
