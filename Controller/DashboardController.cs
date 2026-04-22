@@ -31,11 +31,15 @@ namespace CRM.Api.Controllers
             // Sequential await — EF Core tidak support concurrent queries pada DbContext yang sama
             var totalCsAgent    = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 2);
             var totalTechnician = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 3);
+            var totalCustomer   = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 1); // ← tambah
+            var totalTicket     = await _db.Tickets.AsNoTracking().CountAsync();      
 
             return Ok(new DashboardStats
             {
                 TotalCsAgent    = totalCsAgent,
                 TotalTechnician = totalTechnician,
+                TotalCustomer = totalCustomer,
+                TotalTicket = totalTicket
             });
         }
     }

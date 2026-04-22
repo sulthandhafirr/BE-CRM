@@ -276,23 +276,69 @@ namespace CRM.Api.Controllers
             if (request.ResolvedAt.HasValue)
                 ticket.ResolvedAt = request.ResolvedAt.Value;
 
-            // ← FIX: simpan AgentId dari JWT jika takeAction (agentId dikirim sebagai true/flag)
             if (request.AgentId.HasValue)
                 ticket.AgentId = request.AgentId.Value;
 
             if (request.TechnicianId.HasValue)
                 ticket.TechnicianId = request.TechnicianId.Value;
 
+            // ── NEW: update priority by name ──
+            if (request.Priority != null)
+            {
+                var priority = await _db.Priorities   // ← ganti dari _db.PriorityLists
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.PriorityName == request.Priority);
+                if (priority != null)
+                    ticket.PriorityId = priority.Id;
+            }
+
+            // ── NEW: update solver (agent) by name ──
+            if (request.Solver != null)
+            {
+                if (request.Solver == "Unassigned" || request.Solver == "")
+                {
+                    ticket.AgentId = null;
+                }
+                else
+                {
+                    var agent = await _db.Profiles
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(p => p.Name == request.Solver && p.RoleId == 2);
+                    if (agent != null)
+                        ticket.AgentId = agent.Id;
+                }
+            }
+
+            // ── NEW: update technician by name ──
+            if (request.Technician != null)
+            {
+                if (request.Technician == "Unassigned" || request.Technician == "")
+                {
+                    ticket.TechnicianId = null;
+                }
+                else
+                {
+                    var tech = await _db.Profiles
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(p => p.Name == request.Technician && p.RoleId == 3);
+                    if (tech != null)
+                        ticket.TechnicianId = tech.Id;
+                }
+            }
+
             await _db.SaveChangesAsync();
 
-            // Reload agent name untuk dikembalikan ke frontend
             await _db.Entry(ticket).Reference(t => t.Agent).LoadAsync();
+            await _db.Entry(ticket).Reference(t => t.Technician).LoadAsync();
+            await _db.Entry(ticket).Reference(t => t.Priority).LoadAsync();
 
             return Ok(new
             {
                 id = ticket.Id,
                 status = ticket.Status,
+                priority = ticket.Priority != null ? ticket.Priority.PriorityName : null,
                 solver = ticket.Agent != null ? ticket.Agent.Name : null,
+                technician = ticket.Technician != null ? ticket.Technician.Name : null,
                 resolvedAt = ticket.ResolvedAt,
                 resolved_at = ticket.ResolvedAt,
             });
@@ -621,16 +667,25 @@ namespace CRM.Api.Controllers
         // ── Request models ────────────────────────────────────────────────────
 
         public class UpdateTicketRequest
-        {
+{
             public string? Status { get; set; }
-            
             public Guid? AgentId { get; set; }
 
             [JsonPropertyName("technicianId")]
             public Guid? TechnicianId { get; set; }
-            
+
             [JsonPropertyName("resolvedAt")]
             public DateTime? ResolvedAt { get; set; }
+
+            // ── NEW fields ──
+            [JsonPropertyName("priority")]
+            public string? Priority { get; set; }
+
+            [JsonPropertyName("solver")]
+            public string? Solver { get; set; }
+
+            [JsonPropertyName("technician")]
+            public string? Technician { get; set; }
         }
 
         public class AttachmentInfo
