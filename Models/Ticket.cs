@@ -54,6 +54,12 @@ namespace CRM.Api.Models
 
         [ForeignKey("TechnicianId")]
         public Profile? Technician { get; set; }
+
+        [Column("response_time_sec")]
+        public int? ResponseTimeSec { get; set; }
+
+        [Column("resolution_time_sec")]
+        public int? ResolutionTimeSec { get; set; }
         // Navigation properties
         // public Profile? Customer { get; set; }
         // public Profile? Agent { get; set; }

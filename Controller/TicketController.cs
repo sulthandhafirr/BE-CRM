@@ -132,6 +132,8 @@ namespace CRM.Api.Controllers
                     customer = t.Customer != null ? t.Customer.Name : null,
                     createdAt = t.CreatedAt,
                     resolvedAt = t.ResolvedAt,
+                    responseTimeSec = t.ResponseTimeSec,
+                    resolutionTimeSec = t.ResolutionTimeSec
                 })
                 .ToListAsync();
 
@@ -324,6 +326,14 @@ namespace CRM.Api.Controllers
                     if (tech != null)
                         ticket.TechnicianId = tech.Id;
                 }
+            }
+
+            // Count ResolutionTime if ticket status change to "Solved"
+            if (request.Status == "Solved" && ticket.ResolutionTimeSec == null)
+            {
+                var resolvedAt = request.ResolvedAt ?? DateTime.UtcNow;
+                ticket.ResolvedAt = resolvedAt;
+                ticket.ResolutionTimeSec = (int)(resolvedAt - ticket.CreatedAt).TotalSeconds;
             }
 
             await _db.SaveChangesAsync();
@@ -536,7 +546,10 @@ namespace CRM.Api.Controllers
 
             // Hanya isi first_response_at jika belum pernah diisi sebelumnya
             if (ticket.FirstResponseAt == null)
+            {
                 ticket.FirstResponseAt = DateTime.UtcNow;
+                ticket.ResponseTimeSec = (int)(ticket.FirstResponseAt.Value - ticket.CreatedAt).TotalSeconds; // Response time
+            }
 
             await _db.SaveChangesAsync();
             await _db.Entry(ticket).Reference(t => t.Agent).LoadAsync();
@@ -667,7 +680,7 @@ namespace CRM.Api.Controllers
         // ── Request models ────────────────────────────────────────────────────
 
         public class UpdateTicketRequest
-{
+        {
             public string? Status { get; set; }
             public Guid? AgentId { get; set; }
 
