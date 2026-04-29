@@ -68,6 +68,13 @@ namespace CRM.Api.Controllers
                 .AsNoTracking()
                 .Where(t => t.AgentId == userId && t.Status == "Solved" && t.ResolutionTimeSec != null)
                 .AverageAsync(t => (double?)t.ResolutionTimeSec);
+            
+            var priorityCounts = await _db.Tickets
+                .AsNoTracking()
+                .Where(t => t.Priority != null)
+                .GroupBy(t => t.Priority!.PriorityName)
+                .Select(g => new { Priority = g.Key, Count = g.Count() })
+                .ToListAsync();
 
             var totalCsAgentFull = profileCounts.FirstOrDefault(p => p.RoleId == 2)?.Count ?? 0;
             var totalTechnicianFull = profileCounts.FirstOrDefault(p => p.RoleId == 3)?.Count ?? 0;
@@ -78,10 +85,10 @@ namespace CRM.Api.Controllers
             var progress = ticketCounts.FirstOrDefault(t => t.Status == "Progress")?.Count ?? 0;
             var waiting = ticketCounts.FirstOrDefault(t => t.Status == "Waiting")?.Count ?? 0;
 
-            var low = await _db.Tickets.AsNoTracking().CountAsync(t => t.Priority!.PriorityName == "Low");
-            var normal = await _db.Tickets.AsNoTracking().CountAsync(t => t.Priority!.PriorityName == "Normal");
-            var high = await _db.Tickets.AsNoTracking().CountAsync(t => t.Priority!.PriorityName == "High");
-            var critical = await _db.Tickets.AsNoTracking().CountAsync(t => t.Priority!.PriorityName == "Critical");
+            var low = priorityCounts.FirstOrDefault(p => p.Priority == "Low")?.Count ?? 0;
+            var normal = priorityCounts.FirstOrDefault(p => p.Priority == "Normal")?.Count ?? 0;
+            var high = priorityCounts.FirstOrDefault(p => p.Priority == "High")?.Count ?? 0;
+            var critical = priorityCounts.FirstOrDefault(p => p.Priority == "Critical")?.Count ?? 0;
 
             return Ok(new DashboardStats
             {
