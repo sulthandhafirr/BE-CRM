@@ -92,6 +92,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddScoped<RoleService>();
 
+builder.Services.AddScoped<EmailService>();
+
 var supabaseServiceKey = builder.Configuration["Supabase:ServiceKey"]
     ?? throw new InvalidOperationException("Supabase Service Key is not configured");
 

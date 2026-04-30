@@ -17,13 +17,15 @@ namespace CRM.Api.Controllers
         private readonly AppDbContext _db;
         private readonly IConfiguration _config;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly EmailService _emailService;
 
-        public TicketController(AppDbContext db, RoleService roleService, IConfiguration config, IHttpClientFactory httpClientFactory)
+        public TicketController(AppDbContext db, RoleService roleService, EmailService emailService, IConfiguration config, IHttpClientFactory httpClientFactory)
             : base(roleService)
         {
             _db = db;
             _config = config;
             _httpClientFactory = httpClientFactory;
+            _emailService = emailService;
         }
 
         // GET /api/tickets — customer gets their own tickets
@@ -342,6 +344,15 @@ namespace CRM.Api.Controllers
             await _db.Entry(ticket).Reference(t => t.Technician).LoadAsync();
             await _db.Entry(ticket).Reference(t => t.Priority).LoadAsync();
 
+            // email notfication
+            var customer = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.CustomerId);
+
+            if (request.Status == "Solved" && customer?.Email != null) // Email — ticket resolved
+                await _emailService.SendTicketResolvedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
+
+            if (request.TechnicianId.HasValue && customer?.Email != null) // Email — technician assigned
+                await _emailService.SendTechnicianAssignedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
+
             return Ok(new
             {
                 id = ticket.Id,
@@ -554,6 +565,11 @@ namespace CRM.Api.Controllers
             await _db.SaveChangesAsync();
             await _db.Entry(ticket).Reference(t => t.Agent).LoadAsync();
 
+            // email notfication
+            var customer = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.CustomerId);
+            if (customer?.Email != null && customer?.Name != null)
+                await _emailService.SendTicketAssignedAsync(customer.Email, customer.Name, ticket.Subject ?? "Your Ticket", ticket.Id);
+
             return Ok(new
             {
                 id = ticket.Id,
@@ -621,6 +637,22 @@ namespace CRM.Api.Controllers
 
             _db.TicketComments.Add(comment);
             await _db.SaveChangesAsync();
+
+            // email notification
+            if (role != "customer")
+            {
+                var customer = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.CustomerId);
+                var sender = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == userId);
+                if (customer?.Email != null)
+                    await _emailService.SendNewMessageAsync(
+                        customer.Email,
+                        customer.Name ?? "Customer",
+                        ticket.Subject ?? "Your Ticket",
+                        ticket.Id,
+                        sender?.Name ?? "Support Agent",
+                        request.Message
+                    );
+            }
 
             return Created($"/api/tickets/{ticketId}/comments/{comment.Id}", new
             {
