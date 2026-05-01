@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using CRM.Api.Models;
+using CRM.Api.Prompts;
+using CRM.Api.Helpers;
 using System.Text;
 using System.Text.Json;
 
@@ -38,7 +40,7 @@ namespace CRM.Api.Controllers
 
                 var messages = new List<object>
                 {
-                    new { role = "system", content = "You are a helpful CRM AI assistant. You help users with customer relationship management tasks, ticket management, and general CRM queries. Be concise and professional." }
+                    new { role = "system", content = ChatPrompts.SystemPrompt }
                 };
 
                 // Add current message
@@ -111,6 +113,9 @@ namespace CRM.Api.Controllers
                         Error = "DeepSeek returned empty content"
                     });
                 }
+
+                // Strip markdown formatting from the response
+                assistantMessage = MarkdownStripper.Strip(assistantMessage);
 
                 return Ok(new ChatResponse 
                 { 
