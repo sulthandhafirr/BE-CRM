@@ -348,10 +348,10 @@ namespace CRM.Api.Controllers
             var customer = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.CustomerId);
 
             if (request.Status == "Solved" && customer?.Email != null) // Email — ticket resolved
-                await _emailService.SendTicketResolvedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
+                _ = _emailService.SendTicketResolvedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
 
             if (request.TechnicianId.HasValue && customer?.Email != null) // Email — technician assigned
-                await _emailService.SendTechnicianAssignedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
+                _ = _emailService.SendTechnicianAssignedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
 
             return Ok(new
             {
@@ -568,7 +568,7 @@ namespace CRM.Api.Controllers
             // email notfication
             var customer = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.CustomerId);
             if (customer?.Email != null && customer?.Name != null)
-                await _emailService.SendTicketAssignedAsync(customer.Email, customer.Name, ticket.Subject ?? "Your Ticket", ticket.Id);
+                _ = _emailService.SendTicketAssignedAsync(customer.Email, customer.Name, ticket.Subject ?? "Your Ticket", ticket.Id);
 
             return Ok(new
             {
@@ -644,7 +644,7 @@ namespace CRM.Api.Controllers
                 var customer = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.CustomerId);
                 var sender = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == userId);
                 if (customer?.Email != null)
-                    await _emailService.SendNewMessageAsync(
+                    _ = _emailService.SendNewMessageAsync(
                         customer.Email,
                         customer.Name ?? "Customer",
                         ticket.Subject ?? "Your Ticket",

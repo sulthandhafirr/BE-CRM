@@ -16,24 +16,33 @@ namespace CRM.Api.Services
 
         private async Task SendAsync(string toEmail, string toName, string subject, string body)
         {
-            var host = _config["Email:Host"] ?? throw new InvalidOperationException("Email:Host is not configured");
-            var port = _config["Email:Port"] ?? throw new InvalidOperationException("Email:Port is not configured");
-            var username = _config["Email:Username"] ?? throw new InvalidOperationException("Email:Username is not configured");
-            var password = _config["Email:Password"] ?? throw new InvalidOperationException("Email:Password is not configured");
-            var sender = _config["Email:SenderName"] ?? "CRM Support";
+            try
+            {
+                var host = _config["Email:Host"] ?? throw new InvalidOperationException("Email:Host is not configured");
+                var port = _config["Email:Port"] ?? throw new InvalidOperationException("Email:Port is not configured");
+                var username = _config["Email:Username"] ?? throw new InvalidOperationException("Email:Username is not configured");
+                var password = _config["Email:Password"] ?? throw new InvalidOperationException("Email:Password is not configured");
+                var sender = _config["Email:SenderName"] ?? "CRM Support";
 
-            var email = new MimeMessage();
-            email.From.Add(new MailboxAddress(sender, username));
-            email.To.Add(new MailboxAddress(toName, toEmail));
-            email.Subject = subject;
-            email.Body = new TextPart("html") { Text = body };
+                var email = new MimeMessage();
+                email.From.Add(new MailboxAddress(sender, username));
+                email.To.Add(new MailboxAddress(toName, toEmail));
+                email.Subject = subject;
+                email.Body = new TextPart("html") { Text = body };
 
-            using var smtp = new SmtpClient();
-            await smtp.ConnectAsync(host, int.Parse(port), SecureSocketOptions.StartTls);
-            await smtp.AuthenticateAsync(username, password);
-            await smtp.SendAsync(email);
-            await smtp.DisconnectAsync(true);
+                using var smtp = new SmtpClient();
+                await smtp.ConnectAsync(host, int.Parse(port), SecureSocketOptions.StartTls);
+                await smtp.AuthenticateAsync(username, password);
+                await smtp.SendAsync(email);
+                await smtp.DisconnectAsync(true);
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine($"[EmailService] Failed to send email to {toEmail}: {ex.Message}");
+            }
         }
+
+        
 
         public Task SendTicketAssignedAsync(string toEmail, string toName, string ticketSubject, long ticketId)
             => SendAsync(
