@@ -14,5 +14,6 @@ namespace CRM.Api.Data
         public DbSet<PriorityList> Priorities { get; set; }
         public DbSet<TicketAttachment> TicketAttachments { get; set; }
         public DbSet<TicketComment> TicketComments { get; set; }
+        public DbSet<Company> Companies { get; set; }
     }
 }
