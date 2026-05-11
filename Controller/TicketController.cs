@@ -387,8 +387,7 @@ namespace CRM.Api.Controllers
         {
             var role = await GetCurrentUserRole();
 
-            // ← FIX: izinkan customer DAN agent
-            if (role != "customer" && role != "cs_agent" && role != "admin")
+            if (role != "customer" && role != "cs_agent" && role != "admin" && role != "technician")
                 return Forbid();
 
             if (request.Files == null || request.Files.Count == 0)
@@ -404,7 +403,13 @@ namespace CRM.Api.Controllers
                     .AsNoTracking()
                     .AnyAsync(t => t.Id == request.TicketId && t.CustomerId == userId);
             }
-            else // cs_agent atau admin
+            else if (role == "technician")
+            {
+                hasAccess = await _db.Tickets
+                    .AsNoTracking()
+                    .AnyAsync(t => t.Id == request.TicketId && t.TechnicianId == userId);
+            }
+            else
             {
                 hasAccess = await _db.Tickets
                     .AsNoTracking()
@@ -500,7 +505,7 @@ namespace CRM.Api.Controllers
             var role = await GetCurrentUserRole();
 
             // ← FIX: izinkan customer DAN agent
-            if (role != "customer" && role != "cs_agent" && role != "admin")
+            if (role != "customer" && role != "cs_agent" && role != "admin" && role != "technician")
                 return Forbid();
 
             if (attachments == null || attachments.Count == 0)
@@ -515,6 +520,12 @@ namespace CRM.Api.Controllers
                 hasAccess = await _db.Tickets
                     .AsNoTracking()
                     .AnyAsync(t => t.Id == ticketId && t.CustomerId == userId);
+            }
+            else if (role == "technician")
+            {
+                hasAccess = await _db.Tickets
+                    .AsNoTracking()
+                    .AnyAsync(t => t.Id == ticketId && t.TechnicianId == userId);
             }
             else
             {
