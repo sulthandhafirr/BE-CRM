@@ -25,15 +25,15 @@ namespace CRM.Api.Controllers
         [HttpGet("stats")]
         public async Task<IActionResult> GetStats()
         {
-            var role = await GetCurrentUserRole();
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
             if (role == "customer")
             {
 
-                var totalCsAgent = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 2);
-                var totalTechnician = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 3);
+                var totalCsAgent = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 2 && p.CompanyId == companyId);
+                var totalTechnician = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 3 && p.CompanyId == companyId);
                 var totalMyTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.CustomerId == userId);
 
                 return Ok(new DashboardStats
@@ -48,6 +48,7 @@ namespace CRM.Api.Controllers
             // query: group profiles by role_id
             var profileCounts = await _db.Profiles
                 .AsNoTracking()
+                .Where(p => p.CompanyId == companyId)
                 .GroupBy(p => p.RoleId)
                 .Select(g => new { RoleId = g.Key, Count = g.Count() })
                 .ToListAsync();
@@ -55,6 +56,7 @@ namespace CRM.Api.Controllers
             // query: group tickets by status + total
             var ticketCounts = await _db.Tickets
                 .AsNoTracking()
+                .Where(t => t.Customer!.CompanyId == companyId)
                 .GroupBy(t => t.Status)
                 .Select(g => new { Status = g.Key, Count = g.Count() })
                 .ToListAsync();
@@ -71,7 +73,7 @@ namespace CRM.Api.Controllers
             
             var priorityCounts = await _db.Tickets
                 .AsNoTracking()
-                .Where(t => t.Priority != null)
+                .Where(t => t.Priority != null && t.Customer!.CompanyId == companyId)
                 .GroupBy(t => t.Priority!.PriorityName)
                 .Select(g => new { Priority = g.Key, Count = g.Count() })
                 .ToListAsync();

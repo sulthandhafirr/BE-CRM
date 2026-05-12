@@ -21,5 +21,14 @@ namespace CRM.Api.Services
 
             return profile?.Role?.RoleName;
         }
+        public async Task<(string? Role, int? CompanyId)> GetRoleAndCompanyAsync(Guid userId)
+        {
+            var profile = await _db.Profiles
+                .Include(p => p.Role)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == userId);
+
+            return (profile?.Role?.RoleName, profile?.CompanyId);
+        }
     }
 }

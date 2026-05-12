@@ -100,7 +100,7 @@ namespace CRM.Api.Controllers
         [HttpGet("my-solved")]
         public async Task<IActionResult> GetMySolvedTickets()
         {
-            var role = await GetCurrentUserRole();
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "cs_agent" && role != "technician") return Forbid();
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
@@ -111,7 +111,7 @@ namespace CRM.Api.Controllers
                 // .Include(t => t.Agent)
                 // .Include(t => t.Technician)
                 .AsNoTracking()
-                .Where(t => t.Status == "Solved");
+                .Where(t => t.Status == "Solved" && t.Customer!.CompanyId == companyId);
 
             if (role == "cs_agent")
                 query = query.Where(t => t.AgentId == userId);
@@ -230,14 +230,15 @@ namespace CRM.Api.Controllers
         [HttpGet("all")]
         public async Task<IActionResult> GetAllTickets()
         {
-            var role = await GetCurrentUserRole();
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "cs_agent" && role != "admin") return Forbid();
 
             var tickets = await _db.Tickets
                 .Include(t => t.Priority)
                 .Include(t => t.Customer)
                 .Include(t => t.Agent)
-                .Include(t => t.Attachments)   // ← tambah ini
+                .Include(t => t.Attachments)
+                .Where(t => t.Customer!.CompanyId == companyId)
                 .OrderByDescending(t => t.CreatedAt)
                 .AsNoTracking()
                 .Select(t => new
@@ -251,7 +252,7 @@ namespace CRM.Api.Controllers
                     solver = t.Agent != null ? t.Agent.Name : null,
                     technician = t.Technician != null ? t.Technician.Name : null,
                     createdAt = t.CreatedAt,
-                    attachments = t.Attachments.Select(a => new   // ← tambah ini
+                    attachments = t.Attachments.Select(a => new
                     {
                         id = a.Id,
                         fileName = a.FileName,
@@ -268,10 +269,12 @@ namespace CRM.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateTicket(long id, [FromBody] UpdateTicketRequest request)
         {
-            var role = await GetCurrentUserRole();
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "cs_agent" && role != "admin") return Forbid();
 
-            var ticket = await _db.Tickets.FindAsync(id);
+            var ticket = await _db.Tickets
+                .Include(t => t.Customer)
+                .FirstOrDefaultAsync(t => t.Id == id && t.Customer!.CompanyId == companyId);
             if (ticket == null) return NotFound("Ticket not found");
 
             if (request.Status != null)
@@ -369,10 +372,12 @@ namespace CRM.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteTicket(long id)
         {
-            var role = await GetCurrentUserRole();
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "cs_agent" && role != "admin") return Forbid();
 
-            var ticket = await _db.Tickets.FindAsync(id);
+            var ticket = await _db.Tickets
+                .Include(t => t.Customer)
+                .FirstOrDefaultAsync(t => t.Id == id && t.Customer!.CompanyId == companyId);
             if (ticket == null) return NotFound("Ticket not found");
 
             _db.Tickets.Remove(ticket);
@@ -555,12 +560,14 @@ namespace CRM.Api.Controllers
         [HttpPost("{id}/take-action")]
         public async Task<IActionResult> TakeAction(long id)
         {
-            var role = await GetCurrentUserRole();
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "cs_agent" && role != "admin") return Forbid();
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-            var ticket = await _db.Tickets.FindAsync(id);
+            var ticket = await _db.Tickets
+                .Include(t => t.Customer)
+                .FirstOrDefaultAsync(t => t.Id == id && t.Customer!.CompanyId == companyId);
             if (ticket == null) return NotFound("Ticket not found");
 
             ticket.AgentId = userId;
@@ -590,15 +597,15 @@ namespace CRM.Api.Controllers
             });
         }
 
-        // GET /api/tickets/technicians — get all technicians (cs_agent only)
+        // GET /api/tickets/technicians — get all technicians (cs_agent & admin)
         [HttpGet("technicians")]
         public async Task<IActionResult> GetTechnicians()
         {
-            var role = await GetCurrentUserRole();
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "cs_agent" && role != "admin") return Forbid();
 
             var technicians = await _db.Profiles
-                .Where(p => p.RoleId == 3)
+                .Where(p => p.RoleId == 3 && p.CompanyId == companyId)
                 .AsNoTracking()
                 .Select(p => new
                 {
@@ -616,15 +623,16 @@ namespace CRM.Api.Controllers
         [HttpPost("{ticketId}/comments")]
         public async Task<IActionResult> CreateComment(long ticketId, [FromBody] CreateTicketCommentRequest request)
         {
-            var role = await GetCurrentUserRole();
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
             if (string.IsNullOrWhiteSpace(request.Message))
                 return BadRequest("Message is required");
 
             var ticket = await _db.Tickets
+                .Include(t => t.Customer)
                 .AsNoTracking()
-                .FirstOrDefaultAsync(t => t.Id == ticketId);
+                .FirstOrDefaultAsync(t => t.Id == ticketId && t.Customer!.CompanyId == companyId);
 
             if (ticket == null) return NotFound("Ticket not found");
 
@@ -681,12 +689,13 @@ namespace CRM.Api.Controllers
         [HttpGet("{ticketId}/comments")]
         public async Task<IActionResult> GetComments(long ticketId)
         {
-            var role = await GetCurrentUserRole();
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
             var ticket = await _db.Tickets
+                .Include(t => t.Customer)
                 .AsNoTracking()
-                .FirstOrDefaultAsync(t => t.Id == ticketId);
+                .FirstOrDefaultAsync(t => t.Id == ticketId && t.Customer!.CompanyId == companyId);
 
             if (ticket == null) return NotFound("Ticket not found");
 
