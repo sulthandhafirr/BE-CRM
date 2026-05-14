@@ -25,6 +25,15 @@ namespace CRM.Api.Models
         [Column("priority_id")]
         public int? PriorityId { get; set; }
 
+        [ForeignKey("PriorityId")]
+        public PriorityList? Priority { get; set; }
+
+        [Column("user_choosen_priority_id")]
+        public int? UserChoosenPriorityId { get; set; }
+
+        [ForeignKey("UserChoosenPriorityId")]
+        public PriorityList? UserChoosenPriority { get; set; }
+
         [Column("status")]
         public string? Status { get; set; }
 
@@ -63,7 +72,7 @@ namespace CRM.Api.Models
         // Navigation properties
         // public Profile? Customer { get; set; }
         // public Profile? Agent { get; set; }
-        public PriorityList? Priority { get; set; }
+        // public PriorityList? Priority { get; set; }
         public ICollection<TicketAttachment> Attachments { get; set; } = new List<TicketAttachment>();
         public ICollection<TicketComment> Comments { get; set; } = new List<TicketComment>();
 

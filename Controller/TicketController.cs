@@ -492,6 +492,7 @@ namespace CRM.Api.Controllers
                 Description = request.Description,
                 Status = "Waiting",
                 PriorityId = priorityId,
+                UserChoosenPriorityId = request.UserPriorityId,
                 SlaDeadline = slaDeadline,
                 SlaBreached = false,
                 CreatedAt = DateTime.UtcNow,
@@ -619,7 +620,7 @@ namespace CRM.Api.Controllers
             return Ok(technicians);
         }
 
-        // POST /api/tickets/{ticketId}/comments
+        // POST /api/tickets/{ticketId}/c
         [HttpPost("{ticketId}/comments")]
         public async Task<IActionResult> CreateComment(long ticketId, [FromBody] CreateTicketCommentRequest request)
         {
@@ -764,6 +765,7 @@ namespace CRM.Api.Controllers
         {
             public string? Subject { get; set; }
             public string? Description { get; set; }
+            public int? UserPriorityId { get; set; }
         }
 
         public class FileRequest
