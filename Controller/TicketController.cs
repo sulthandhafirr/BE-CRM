@@ -146,21 +146,27 @@ namespace CRM.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetTicketById(long id)
         {
-            var role = await GetCurrentUserRole();
-            if (role != "customer" && role != "technician") return Forbid();
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (role != "customer" && role != "technician" && role != "cs_agent" && role != "admin")
+                return Forbid();
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
             var query = _db.Tickets
                 .Include(t => t.Priority)
+                .Include(t => t.Customer)
+                .Include(t => t.Agent)
                 .Include(t => t.Attachments)
                 .Where(t => t.Id == id)
                 .AsNoTracking();
 
+            // Filter berdasarkan role
             if (role == "customer")
                 query = query.Where(t => t.CustomerId == userId);
-            else
+            else if (role == "technician")
                 query = query.Where(t => t.TechnicianId == userId);
+            else // cs_agent & admin — bisa akses semua ticket dalam company
+                query = query.Where(t => t.Customer!.CompanyId == companyId);
 
             var ticket = await query
                 .Select(t => new
@@ -169,9 +175,11 @@ namespace CRM.Api.Controllers
                     subject = t.Subject,
                     description = t.Description,
                     status = t.Status,
-                    // priority = t.Priority != null ? t.Priority.PriorityName : "Analyzing...",
+                    priority = t.Priority != null ? t.Priority.PriorityName : null,
+                    customer = t.Customer != null ? t.Customer.Name : null,
+                    solver = t.Agent != null ? t.Agent.Name : null,
+                    technician = t.Technician != null ? t.Technician.Name : null,
                     handler = t.Agent != null ? t.Agent.Name : "Not assigned yet",
-                    technician = t.Technician != null ? t.Technician.Name : "-",
                     createdAt = t.CreatedAt,
                     resolvedAt = t.ResolvedAt,
                     attachments = t.Attachments.Select(a => new
