@@ -686,9 +686,6 @@ namespace CRM.Api.Controllers
             _db.TicketComments.Add(comment);
             await _db.SaveChangesAsync();
 
-            Console.WriteLine($"AgentId: {ticket.AgentId}, TechnicianId: {ticket.TechnicianId}");
-
-
             // email notification
             if (role != "customer")
             {
