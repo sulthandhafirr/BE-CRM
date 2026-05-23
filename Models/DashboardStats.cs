@@ -5,7 +5,10 @@ namespace CRM.Api.Models
         public int TotalCsAgent { get; set; }
         public int TotalTechnician { get; set; }
         public int TotalCustomer { get; set; }
-        public int TotalTicket { get; set; } 
+        public int TotalTicket { get; set; }
+        public int TotalMyTicket { get; set; }
+        public int ActiveTicket { get; set; }
+        public int SolvedTicket { get; set; } 
         public TicketByStatus? TicketByStatus { get; set; }
         public double? MyAvgResponseTime { get; set; }
         public double? MyAvgResolutionTime { get; set; }

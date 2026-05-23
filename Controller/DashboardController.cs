@@ -34,16 +34,36 @@ namespace CRM.Api.Controllers
 
                 var totalCsAgent = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 2 && p.CompanyId == companyId);
                 var totalTechnician = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 3 && p.CompanyId == companyId);
-                var totalMyTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.CustomerId == userId);
+                var activeTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.CustomerId == userId && t.Status != "Solved");
+                var solvedTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.CustomerId == userId && t.Status == "Solved");
+                var totalMyTicket = activeTicket + solvedTicket;
 
                 return Ok(new DashboardStats
                 {
                     TotalCsAgent = totalCsAgent,
                     TotalTechnician = totalTechnician,
-                    TotalTicket = totalMyTicket
+                    TotalMyTicket = totalMyTicket,
+                    ActiveTicket = activeTicket,
+                    SolvedTicket = solvedTicket,
                     // TotalCustomer and TicketByStatus are omitted — will be null/0
                 });
             }
+
+            if (role == "technician")
+            {
+                var activeTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.TechnicianId == userId && t.Status != "Solved");
+                var solvedTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.TechnicianId == userId && t.Status == "Solved");
+                var totalMyTicket = activeTicket + solvedTicket;
+
+                return Ok(new DashboardStats
+                {
+                    TotalMyTicket = totalMyTicket,
+                    ActiveTicket = activeTicket,
+                    SolvedTicket = solvedTicket,
+                });
+            }
+
+            // CS AGENT
 
             // query: group profiles by role_id
             var profileCounts = await _db.Profiles
