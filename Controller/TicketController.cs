@@ -18,14 +18,16 @@ namespace CRM.Api.Controllers
         private readonly IConfiguration _config;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly EmailService _emailService;
+        private readonly NotificationService _notificationService;
 
-        public TicketController(AppDbContext db, RoleService roleService, EmailService emailService, IConfiguration config, IHttpClientFactory httpClientFactory)
+        public TicketController(AppDbContext db, RoleService roleService, EmailService emailService, NotificationService notificationService, IConfiguration config, IHttpClientFactory httpClientFactory)
             : base(roleService)
         {
             _db = db;
             _config = config;
             _httpClientFactory = httpClientFactory;
             _emailService = emailService;
+            _notificationService = notificationService;
         }
 
         // GET /api/tickets — customer gets their own tickets
@@ -355,14 +357,29 @@ namespace CRM.Api.Controllers
             await _db.Entry(ticket).Reference(t => t.Technician).LoadAsync();
             await _db.Entry(ticket).Reference(t => t.Priority).LoadAsync();
 
-            // email notfication
+            // notfication
             var customer = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.CustomerId);
 
-            if (request.Status == "Solved" && customer?.Email != null) // Email — ticket resolved
-                _ = _emailService.SendTicketResolvedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
+            if (request.Status == "Solved")
+            {
+                if (customer?.Email != null)
+                    _ = _emailService.SendTicketResolvedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
+                await _notificationService.CreateAsync(ticket.CustomerId, $"Your ticket #{ticket.Id} '{ticket.Subject}' has been resolved.");
+            }
 
-            if (request.TechnicianId.HasValue && customer?.Email != null) // Email — technician assigned
-                _ = _emailService.SendTechnicianAssignedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
+            // technician assigned
+            if (request.TechnicianId.HasValue)
+            {
+                if (customer?.Email != null)
+                    _ = _emailService.SendTechnicianAssignedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
+                await _notificationService.CreateAsync(ticket.CustomerId, $"A technician has been assigned to your ticket #{ticket.Id} '{ticket.Subject}'.");
+                await _notificationService.CreateAsync(request.TechnicianId.Value, $"You have been assigned to ticket #{ticket.Id} '{ticket.Subject}'.");
+            }
+
+            if (request.Technician != null && request.Technician != "Unassigned" && request.Technician != "" && ticket.TechnicianId.HasValue)
+            {
+                await _notificationService.CreateAsync(ticket.TechnicianId.Value, $"You have been assigned to ticket #{ticket.Id} '{ticket.Subject}'.");
+            }
 
             return Ok(new
             {
@@ -597,6 +614,9 @@ namespace CRM.Api.Controllers
             if (customer?.Email != null && customer?.Name != null)
                 _ = _emailService.SendTicketAssignedAsync(customer.Email, customer.Name, ticket.Subject ?? "Your Ticket", ticket.Id);
 
+            // web notification
+            _ = _notificationService.CreateAsync(ticket.CustomerId, $"Your ticket #{ticket.Id} '{ticket.Subject}' has been assigned to an agent.");
+
             return Ok(new
             {
                 id = ticket.Id,
@@ -628,7 +648,7 @@ namespace CRM.Api.Controllers
             return Ok(technicians);
         }
 
-        // POST /api/tickets/{ticketId}/c
+        // POST /api/tickets/{ticketId}/comments
         [HttpPost("{ticketId}/comments")]
         public async Task<IActionResult> CreateComment(long ticketId, [FromBody] CreateTicketCommentRequest request)
         {
@@ -666,11 +686,15 @@ namespace CRM.Api.Controllers
             _db.TicketComments.Add(comment);
             await _db.SaveChangesAsync();
 
+            Console.WriteLine($"AgentId: {ticket.AgentId}, TechnicianId: {ticket.TechnicianId}");
+
+
             // email notification
             if (role != "customer")
             {
                 var customer = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.CustomerId);
                 var sender = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == userId);
+                var senderRole = role == "cs_agent" ? "agent" : "technician";
                 if (customer?.Email != null)
                     _ = _emailService.SendNewMessageAsync(
                         customer.Email,
@@ -680,6 +704,26 @@ namespace CRM.Api.Controllers
                         sender?.Name ?? "Support Agent",
                         request.Message
                     );
+
+                // customer web notification
+                await _notificationService.CreateAsync(ticket.CustomerId, $"New message from {senderRole} on your ticket #{ticket.Id} '{ticket.Subject}'.");
+
+                // if technician comments notify agent
+                if (role == "technician" && ticket.AgentId.HasValue)
+                    await _notificationService.CreateAsync(ticket.AgentId.Value, $"New message from technician on ticket #{ticket.Id} '{ticket.Subject}'.");
+
+                // if agent comments notify technician
+                if (role == "cs_agent" && ticket.TechnicianId.HasValue)
+                    await _notificationService.CreateAsync(ticket.TechnicianId.Value, $"New message from agent on ticket #{ticket.Id} '{ticket.Subject}'.");
+            }
+            else
+            {
+                // agent/technician gets notification when customer comments
+                if (ticket.AgentId.HasValue)
+                    await _notificationService.CreateAsync(ticket.AgentId.Value, $"New message from customer on ticket #{ticket.Id} '{ticket.Subject}'.");
+
+                if (ticket.TechnicianId.HasValue)
+                    await _notificationService.CreateAsync(ticket.TechnicianId.Value, $"New message from customer on ticket #{ticket.Id} '{ticket.Subject}'.");
             }
 
             return Created($"/api/tickets/{ticketId}/comments/{comment.Id}", new

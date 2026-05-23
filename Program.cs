@@ -94,6 +94,8 @@ builder.Services.AddScoped<RoleService>();
 
 builder.Services.AddScoped<EmailService>();
 
+builder.Services.AddScoped<NotificationService>();
+
 var supabaseServiceKey = builder.Configuration["Supabase:ServiceKey"]
     ?? throw new InvalidOperationException("Supabase Service Key is not configured");
 
