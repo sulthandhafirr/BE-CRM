@@ -184,6 +184,7 @@ namespace CRM.Api.Controllers
                     handler = t.Agent != null ? t.Agent.Name : "Not assigned yet",
                     createdAt = t.CreatedAt,
                     resolvedAt = t.ResolvedAt,
+                    solverId = t.Agent != null ? (Guid?)t.Agent.Id : null,
                     attachments = t.Attachments.Select(a => new
                     {
                         id = a.Id,
