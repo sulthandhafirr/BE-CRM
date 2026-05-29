@@ -96,6 +96,8 @@ builder.Services.AddScoped<EmailService>();
 
 builder.Services.AddScoped<NotificationService>();
 
+builder.Services.AddScoped<SentimentAnalysisService>();
+
 var supabaseServiceKey = builder.Configuration["Supabase:ServiceKey"]
     ?? throw new InvalidOperationException("Supabase Service Key is not configured");
 
@@ -107,6 +109,8 @@ builder.Services.AddTransient(_ =>
 );
 
 var app = builder.Build();
+
+await EnsureTicketSentimentColumnsAsync(app.Services);
 
 if (app.Environment.IsDevelopment())
 {
@@ -123,6 +127,17 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+static async Task EnsureTicketSentimentColumnsAsync(IServiceProvider serviceProvider)
+{
+    using var scope = serviceProvider.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    await db.Database.ExecuteSqlRawAsync(@"
+        ALTER TABLE IF EXISTS public.ticket
+        ADD COLUMN IF NOT EXISTS sentiment text,
+        ADD COLUMN IF NOT EXISTS sentiment_confidence double precision;");
+}
 
 static void LoadDotEnvFromKnownLocations()
 {

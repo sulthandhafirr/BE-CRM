@@ -19,8 +19,9 @@ namespace CRM.Api.Controllers
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly EmailService _emailService;
         private readonly NotificationService _notificationService;
+        private readonly SentimentAnalysisService _sentimentAnalysisService;
 
-        public TicketController(AppDbContext db, RoleService roleService, EmailService emailService, NotificationService notificationService, IConfiguration config, IHttpClientFactory httpClientFactory)
+        public TicketController(AppDbContext db, RoleService roleService, EmailService emailService, NotificationService notificationService, SentimentAnalysisService sentimentAnalysisService, IConfiguration config, IHttpClientFactory httpClientFactory)
             : base(roleService)
         {
             _db = db;
@@ -28,6 +29,7 @@ namespace CRM.Api.Controllers
             _httpClientFactory = httpClientFactory;
             _emailService = emailService;
             _notificationService = notificationService;
+            _sentimentAnalysisService = sentimentAnalysisService;
         }
 
         // GET /api/tickets — customer gets their own tickets
@@ -507,8 +509,23 @@ namespace CRM.Api.Controllers
             if (role != "customer") return Forbid();
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            var ticketText = string.Join("\n\n", new[] { request.Subject, request.Description }
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!.Trim()));
 
-            var priorityId = 2;
+            var sentimentResult = await _sentimentAnalysisService.AnalyzeAsync(ticketText);
+            var generatedPriorityName = SentimentAnalysisService.ResolvePriorityName(
+                sentimentResult.Sentiment,
+                sentimentResult.Confidence);
+
+            var priority = await _db.Priorities
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.PriorityName == generatedPriorityName)
+                ?? await _db.Priorities
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.PriorityName == "Normal");
+
+            var priorityId = priority?.Id ?? 2;
             var slaDeadline = DateTime.UtcNow.AddHours(24);
 
             var ticket = new Ticket
@@ -518,6 +535,8 @@ namespace CRM.Api.Controllers
                 Description = request.Description,
                 Status = "Waiting",
                 PriorityId = priorityId,
+                Sentiment = sentimentResult.Sentiment,
+                SentimentConfidence = sentimentResult.Confidence,
                 UserChoosenPriorityId = request.UserPriorityId,
                 SlaDeadline = slaDeadline,
                 SlaBreached = false,
