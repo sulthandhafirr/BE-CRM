@@ -690,6 +690,7 @@ namespace CRM.Api.Controllers
                 "customer" => ticket.CustomerId == userId,
                 "cs_agent" => ticket.AgentId == userId,
                 "technician" => ticket.TechnicianId == userId,
+                "admin" => true,
                 _ => false
             };
 
