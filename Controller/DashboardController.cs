@@ -55,11 +55,30 @@ namespace CRM.Api.Controllers
                 var solvedTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.TechnicianId == userId && t.Status == "Solved");
                 var totalMyTicket = activeTicket + solvedTicket;
 
+                var technicianPriorityCounts = await _db.Tickets
+                    .AsNoTracking()
+                    .Where(t => t.TechnicianId == userId && t.Priority != null)
+                    .GroupBy(t => t.Priority!.PriorityName)
+                    .Select(g => new { Priority = g.Key, Count = g.Count() })
+                    .ToListAsync();
+
+                var technicianLow = technicianPriorityCounts.FirstOrDefault(p => p.Priority == "Low")?.Count ?? 0;
+                var technicianNormal = technicianPriorityCounts.FirstOrDefault(p => p.Priority == "Normal")?.Count ?? 0;
+                var technicianHigh = technicianPriorityCounts.FirstOrDefault(p => p.Priority == "High")?.Count ?? 0;
+                var technicianCritical = technicianPriorityCounts.FirstOrDefault(p => p.Priority == "Critical")?.Count ?? 0;
+
                 return Ok(new DashboardStats
                 {
                     TotalMyTicket = totalMyTicket,
                     ActiveTicket = activeTicket,
                     SolvedTicket = solvedTicket,
+                    TicketByPriority = new TicketByPriority
+                    {
+                        Low = technicianLow,
+                        Normal = technicianNormal,
+                        High = technicianHigh,
+                        Critical = technicianCritical
+                    }
                 });
             }
 
