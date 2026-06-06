@@ -14,6 +14,29 @@ namespace CRM.Api.Models
         public string? RoleName { get; set; }
     }
 
+    [Table("skills", Schema = "public")]
+    public class Skill
+    {
+        [Key]
+        [Column("id")]
+        public int Id { get; set; }
+
+        [Column("skill")]
+        public string? SkillName { get; set; }
+    }
+
+    [Table("profile_skill", Schema = "public")]
+    public class ProfileSkill
+    {
+        [Column("profile_id")]
+        public Guid ProfileId { get; set; }
+
+        [Column("skill_id")]
+        public int SkillId { get; set; }
+
+        public Skill? Skill { get; set; }
+    }
+
     [Table("profile", Schema = "public")]
     public class Profile
     {
@@ -40,5 +63,6 @@ namespace CRM.Api.Models
 
         [ForeignKey("CompanyId")]
         public Company? Company { get; set; }
+        public ICollection<ProfileSkill> ProfileSkills { get; set; } = new List<ProfileSkill>();
     }
 }

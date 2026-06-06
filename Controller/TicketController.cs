@@ -662,6 +662,9 @@ namespace CRM.Api.Controllers
                     name = p.Name,
                     email = p.Email,
                     position = p.Position,
+                    skills = p.ProfileSkills
+                        .Select(ps => ps.Skill!.SkillName)
+                        .ToList()
                 })
                 .ToListAsync();
 
