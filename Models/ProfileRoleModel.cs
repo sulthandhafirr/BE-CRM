@@ -64,5 +64,6 @@ namespace CRM.Api.Models
         [ForeignKey("CompanyId")]
         public Company? Company { get; set; }
         public ICollection<ProfileSkill> ProfileSkills { get; set; } = new List<ProfileSkill>();
+        public ICollection<ProfileTier> ProfileTiers { get; set; } = new List<ProfileTier>();
     }
 }

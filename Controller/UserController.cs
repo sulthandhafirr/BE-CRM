@@ -25,12 +25,25 @@ namespace CRM.Api.Controllers
             var users = await _context.Profiles
                 .Where(p => p.RoleId == role_id)
                 .OrderBy(p => p.Name)
+                .Include(p => p.ProfileSkills)
+                    .ThenInclude(ps => ps.Skill)
+                .Include(p => p.ProfileTiers)
+                    .ThenInclude(pt => pt.Tier)
                 .Select(p => new
                 {
                     id       = p.Id,
                     name     = p.Name,
                     email    = p.Email,
                     position = p.Position,
+                    profile_skill = p.ProfileSkills.Select(ps => new
+                    {
+                        skills = new { skill = ps.Skill != null ? ps.Skill.SkillName : null }
+                    }),
+                    profile_tier = p.ProfileTiers.Select(pt => new
+                    {
+                        tier_id = pt.TierId,
+                        tier    = new { tierName = pt.Tier != null ? pt.Tier.TierName : null }
+                    })
                 })
                 .ToListAsync();
 
