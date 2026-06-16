@@ -525,8 +525,17 @@ namespace CRM.Api.Controllers
                     .AsNoTracking()
                     .FirstOrDefaultAsync(p => p.PriorityName == "Normal");
 
+            var slaDays = generatedPriorityName switch
+            {
+                "Critical" => 1,
+                "High" => 2,
+                "Normal" => 3,
+                "Low" => 4,
+                _ => 3
+            };
+
+            var slaDeadline = DateTime.UtcNow.AddDays(slaDays);
             var priorityId = priority?.Id ?? 2;
-            var slaDeadline = DateTime.UtcNow.AddHours(24);
 
             var ticket = new Ticket
             {

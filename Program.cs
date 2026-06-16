@@ -98,6 +98,8 @@ builder.Services.AddScoped<NotificationService>();
 
 builder.Services.AddScoped<SentimentAnalysisService>();
 
+builder.Services.AddHostedService<SlaCheckerService>();
+
 var supabaseServiceKey = builder.Configuration["Supabase:ServiceKey"]
     ?? throw new InvalidOperationException("Supabase Service Key is not configured");
 
