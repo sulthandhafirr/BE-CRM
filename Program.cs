@@ -98,6 +98,8 @@ builder.Services.AddScoped<NotificationService>();
 
 builder.Services.AddScoped<SentimentAnalysisService>();
 
+builder.Services.AddScoped<TicketRecommendationService>();
+
 builder.Services.AddHostedService<SlaCheckerService>();
 
 var supabaseServiceKey = builder.Configuration["Supabase:ServiceKey"]
