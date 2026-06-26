@@ -1,19 +1,22 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using CRM.Api.Models;
 using CRM.Api.Data;
+using CRM.Api.Services; // ← tambah
 
 namespace CRM.Api.Controllers
 {
     [ApiController]
     [Route("api/users")]
     [Authorize]
-    public class UserController : ControllerBase
+    public class UserController : BaseController // ← ganti dari ControllerBase
     {
         private readonly AppDbContext _context;
 
-        public UserController(AppDbContext context)
+        public UserController(AppDbContext context, RoleService roleService) // ← tambah roleService
+            : base(roleService) // ← tambah
         {
             _context = context;
         }
@@ -22,8 +25,11 @@ namespace CRM.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetUsersByRole([FromQuery] int role_id)
         {
+            // Ambil company_id dari admin yang login
+            var (_, companyId) = await GetCurrentUserRoleAndCompany();
+
             var users = await _context.Profiles
-                .Where(p => p.RoleId == role_id)
+                .Where(p => p.RoleId == role_id && p.CompanyId == companyId) // ← tambah filter ini
                 .OrderBy(p => p.Name)
                 .Include(p => p.ProfileSkills)
                     .ThenInclude(ps => ps.Skill)
