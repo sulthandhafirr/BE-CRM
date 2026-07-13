@@ -60,7 +60,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:5173", "http://localhost:5174")
+        policy.WithOrigins("http://localhost:5173", "http://localhost:5174", "https://capstone-crm.pages.dev")
               .AllowAnyMethod()
               .AllowAnyHeader();
     });
@@ -102,6 +102,8 @@ builder.Services.AddScoped<TicketRecommendationService>();
 
 builder.Services.AddHostedService<SlaCheckerService>();
 
+builder.Services.AddScoped<ChatToolService>();
+
 var supabaseServiceKey = builder.Configuration["Supabase:ServiceKey"]
     ?? throw new InvalidOperationException("Supabase Service Key is not configured");
 
@@ -116,11 +118,14 @@ var app = builder.Build();
 
 await EnsureTicketSentimentColumnsAsync(app.Services);
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// if (app.Environment.IsDevelopment())
+// {
+//     app.UseSwagger();
+//     app.UseSwaggerUI();
+// }
+
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");

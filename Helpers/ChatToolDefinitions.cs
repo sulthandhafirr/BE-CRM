@@ -1,0 +1,50 @@
+namespace CRM.Api.Prompts
+{
+    public static class ChatToolDefinitions
+    {
+        public static readonly object[] Tools = new object[]
+        {
+            new
+            {
+                type = "function",
+                function = new
+                {
+                    name = "get_ticket_status",
+                    description = "Get the status, priority, SLA info, and assigned agent (if any) of a specific ticket by its ID",
+                    parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            ticket_id = new { type = "string", description = "The ticket ID" }
+                        },
+                        required = new[] { "ticket_id" }
+                    }
+                }
+            },
+            new
+            {
+                type = "function",
+                function = new
+                {
+                    name = "get_tickets",
+                    description = "Get a list of tickets filtered by scope. Use 'mine' for tickets assigned to the current user, 'unassigned' for tickets waiting in queue with no agent, 'others' for tickets assigned to other agents, or 'all' for all tickets in the company.",
+                    parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            scope = new
+                            {
+                                type = "string",
+                                @enum = new[] { "mine", "unassigned", "others", "all" },
+                                description = "Which subset of tickets to retrieve"
+                            }
+                        },
+                        required = new[] { "scope" }
+                    }
+                }
+            }
+        };
+    }
+}
