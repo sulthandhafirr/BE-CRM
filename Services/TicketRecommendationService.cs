@@ -18,21 +18,21 @@ namespace CRM.Api.Services
             _apiUrl = config["TICKET_RECOMMENDATION_API_URL"] ?? throw new Exception("TICKET_RECOMMENDATION_API_URL not set");
         }
 
-        public async Task<List<RecommendedTicketDto>> GetRecommendedTicketsAsync(Guid agentId)
+        public async Task<List<RecommendedTicketDto>> GetRecommendedTicketsAsync(Guid agentId, int? companyId)
         {
             var currentWorkload = await _db.Tickets
-                .Where(t => t.AgentId == agentId && t.Status != "Resolved")
+                .Where(t => t.AgentId == agentId && t.Status != "Resolved" && t.Customer!.CompanyId == companyId)
                 .CountAsync();
 
             var avgResolutionSec = await _db.Tickets
-                .Where(t => t.AgentId == agentId && t.ResolutionTimeSec.HasValue)
+                .Where(t => t.AgentId == agentId && t.ResolutionTimeSec.HasValue && t.Customer!.CompanyId == companyId)
                 .AverageAsync(t => (double?)t.ResolutionTimeSec) ?? 3600; // default 1hr if no history
 
             var agentAvgResolutionHrs = avgResolutionSec / 3600.0;
 
             var unassignedTickets = await _db.Tickets
                 .AsNoTracking()
-                .Where(t => t.AgentId == null && t.Status == "Waiting")
+                .Where(t => t.AgentId == null && t.Status == "Waiting" && t.Customer!.CompanyId == companyId)
                 .Select(t => new
                 {
                     t.Id,

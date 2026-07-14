@@ -20,12 +20,12 @@ namespace CRM.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetRecommendedTickets()
         {
-            var (role, _) = await GetCurrentUserRoleAndCompany();
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "cs_agent") return Forbid();
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-            var recommendations = await _ticketRecommendationService.GetRecommendedTicketsAsync(userId);
+            var recommendations = await _ticketRecommendationService.GetRecommendedTicketsAsync(userId, companyId);
             return Ok(recommendations);
         }
     }
