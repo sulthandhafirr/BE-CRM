@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using CRM.Api.Data;
 using System.Text.Json.Serialization;
 
-
 namespace CRM.Api.Services
 {
     public class TicketRecommendationService
@@ -30,6 +29,12 @@ namespace CRM.Api.Services
 
             var agentAvgResolutionHrs = avgResolutionSec / 3600.0;
 
+            var avgResponseSec = await _db.Tickets
+                .Where(t => t.AgentId == agentId && t.ResponseTimeSec.HasValue && t.Customer!.CompanyId == companyId)
+                .AverageAsync(t => (double?)t.ResponseTimeSec) ?? 1800; // default 30min if no history
+
+            var agentAvgResponseHrs = avgResponseSec / 3600.0;
+
             var unassignedTickets = await _db.Tickets
                 .AsNoTracking()
                 .Where(t => t.AgentId == null && t.Status == "Waiting" && t.Customer!.CompanyId == companyId)
@@ -54,7 +59,8 @@ namespace CRM.Api.Services
                 current_workload = currentWorkload,
                 ticket_priority = t.PriorityName ?? "Normal",
                 ticket_age_hours = (DateTime.UtcNow - t.CreatedAt).TotalHours,
-                agent_avg_resolution_hrs = agentAvgResolutionHrs
+                agent_avg_resolution_hrs = agentAvgResolutionHrs,
+                agent_avg_response_hrs = agentAvgResponseHrs
             }).ToList();
 
             var payload = new
@@ -97,21 +103,29 @@ namespace CRM.Api.Services
                 return Math.Round(Math.Min(100, score * priorityWeight * tierWeight), 2); // cap at 100, 2 decimal places
             }
 
-            return result.Recommendations.Select(r => new RecommendedTicketDto
+            return result.Recommendations.Select(r =>
             {
-                TicketId = r.TicketId,
-                Subject = ticketMap[r.TicketId].Subject ?? "",
-                Priority = ticketMap[r.TicketId].PriorityName ?? "Normal",
-                Status = ticketMap[r.TicketId].Status ?? "",
-                CreatedAt = ticketMap[r.TicketId].CreatedAt,
-                TicketAgeHours = Math.Round((DateTime.UtcNow - ticketMap[r.TicketId].CreatedAt).TotalHours, 1),
-                MatchScore = r.MatchScore,
-                EstimatedScoreImpact = CalcEstimatedImpact(
+                var estimatedImpact = CalcEstimatedImpact(
                     ticketMap[r.TicketId].PriorityName,
                     ticketMap[r.TicketId].TierName
-                )
+                );
+                var blended = (r.MatchScore * 0.5) + (estimatedImpact * 0.5);
+
+                return new RecommendedTicketDto
+                {
+                    TicketId = r.TicketId,
+                    Subject = ticketMap[r.TicketId].Subject ?? "",
+                    Priority = ticketMap[r.TicketId].PriorityName ?? "Normal",
+                    Status = ticketMap[r.TicketId].Status ?? "",
+                    CreatedAt = ticketMap[r.TicketId].CreatedAt,
+                    TicketAgeHours = Math.Round((DateTime.UtcNow - ticketMap[r.TicketId].CreatedAt).TotalHours, 1),
+                    MatchScore = r.MatchScore,
+                    EstimatedScoreImpact = estimatedImpact,
+                    BlendedScore = Math.Round(blended, 2)
+                };
             })
-            .OrderByDescending(t => t.EstimatedScoreImpact)
+            .OrderByDescending(t => t.BlendedScore)
+            .ThenByDescending(t => t.TicketAgeHours)
             .ToList();
         }
     }
@@ -126,6 +140,7 @@ namespace CRM.Api.Services
         public double TicketAgeHours { get; set; }
         public double MatchScore { get; set; }
         public double EstimatedScoreImpact { get; set; }
+        public double BlendedScore { get; set; }
 
     }
 
