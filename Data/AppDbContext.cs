@@ -13,6 +13,7 @@ namespace CRM.Api.Data
         public DbSet<Skill> Skills { get; set; } = null!;
         public DbSet<ProfileSkill> ProfileSkills { get; set; } = null!;
         public DbSet<Ticket> Tickets { get; set; } = null!;
+        public DbSet<Intent> Intents { get; set; } = null!;
         public DbSet<PriorityList> Priorities { get; set; } = null!;
         public DbSet<TicketAttachment> TicketAttachments { get; set; } = null!;
         public DbSet<TicketComment> TicketComments { get; set; } = null!;

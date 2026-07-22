@@ -34,6 +34,21 @@ namespace CRM.Api.Models
         [Column("sentiment_confidence")]
         public double? SentimentConfidence { get; set; }
 
+        [Column("intent_id")]
+        public long? IntentId { get; set; }
+
+        [ForeignKey("IntentId")]
+        public Intent? Intent { get; set; }
+
+        [Column("intent_confidence")]
+        public double? IntentConfidence { get; set; }
+
+        [Column("urgency")]
+        public string? Urgency { get; set; }
+
+        [Column("urgency_confidence")]
+        public double? UrgencyConfidence { get; set; }
+
         [Column("user_choosen_priority_id")]
         public int? UserChoosenPriorityId { get; set; }
 

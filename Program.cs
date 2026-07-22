@@ -98,11 +98,19 @@ builder.Services.AddScoped<NotificationService>();
 
 builder.Services.AddScoped<SentimentAnalysisService>();
 
+builder.Services.AddScoped<IntentAnalysisService>();
+
+builder.Services.AddScoped<UrgencyAnalysisService>();
+
+builder.Services.AddScoped<PriorityEngineService>();
+
 builder.Services.AddScoped<TicketRecommendationService>();
 
 builder.Services.AddHostedService<SlaCheckerService>();
 
 builder.Services.AddScoped<ChatToolService>();
+
+builder.Services.AddScoped<CompanyService>();
 
 var supabaseServiceKey = builder.Configuration["Supabase:ServiceKey"]
     ?? throw new InvalidOperationException("Supabase Service Key is not configured");
@@ -145,7 +153,11 @@ static async Task EnsureTicketSentimentColumnsAsync(IServiceProvider serviceProv
     await db.Database.ExecuteSqlRawAsync(@"
         ALTER TABLE IF EXISTS public.ticket
         ADD COLUMN IF NOT EXISTS sentiment text,
-        ADD COLUMN IF NOT EXISTS sentiment_confidence double precision;");
+        ADD COLUMN IF NOT EXISTS sentiment_confidence double precision,
+        ADD COLUMN IF NOT EXISTS intent text,
+        ADD COLUMN IF NOT EXISTS intent_confidence double precision,
+        ADD COLUMN IF NOT EXISTS urgency text,
+        ADD COLUMN IF NOT EXISTS urgency_confidence double precision;");
 }
 
 static void LoadDotEnvFromKnownLocations()

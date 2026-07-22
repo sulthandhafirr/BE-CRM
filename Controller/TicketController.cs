@@ -20,8 +20,21 @@ namespace CRM.Api.Controllers
         private readonly EmailService _emailService;
         private readonly NotificationService _notificationService;
         private readonly SentimentAnalysisService _sentimentAnalysisService;
+        private readonly IntentAnalysisService _intentAnalysisService;
+        private readonly UrgencyAnalysisService _urgencyAnalysisService;
+        private readonly PriorityEngineService _priorityEngineService;
 
-        public TicketController(AppDbContext db, RoleService roleService, EmailService emailService, NotificationService notificationService, SentimentAnalysisService sentimentAnalysisService, IConfiguration config, IHttpClientFactory httpClientFactory)
+        public TicketController(
+            AppDbContext db,
+            RoleService roleService,
+            EmailService emailService,
+            NotificationService notificationService,
+            SentimentAnalysisService sentimentAnalysisService,
+            IntentAnalysisService intentAnalysisService,
+            UrgencyAnalysisService urgencyAnalysisService,
+            PriorityEngineService priorityEngineService,
+            IConfiguration config,
+            IHttpClientFactory httpClientFactory)
             : base(roleService)
         {
             _db = db;
@@ -30,6 +43,9 @@ namespace CRM.Api.Controllers
             _emailService = emailService;
             _notificationService = notificationService;
             _sentimentAnalysisService = sentimentAnalysisService;
+            _intentAnalysisService = intentAnalysisService;
+            _urgencyAnalysisService = urgencyAnalysisService;
+            _priorityEngineService = priorityEngineService;
         }
 
         // GET /api/tickets — customer gets their own tickets
@@ -161,6 +177,7 @@ namespace CRM.Api.Controllers
                 .Include(t => t.Customer)
                 .Include(t => t.Agent)
                 .Include(t => t.Attachments)
+                .Include(t => t.Intent)
                 .Where(t => t.Id == id)
                 .AsNoTracking();
 
@@ -187,6 +204,10 @@ namespace CRM.Api.Controllers
                     createdAt = t.CreatedAt,
                     resolvedAt = t.ResolvedAt,
                     solverId = t.Agent != null ? (Guid?)t.Agent.Id : null,
+                    intent = t.Intent != null ? t.Intent.IntentName : null,
+                    intentConfidence = t.IntentConfidence,
+                    urgency = t.Urgency,
+                    urgencyConfidence = t.UrgencyConfidence,
                     attachments = t.Attachments.Select(a => new
                     {
                         id = a.Id,
@@ -251,6 +272,7 @@ namespace CRM.Api.Controllers
                 .Include(t => t.Customer)
                 .Include(t => t.Agent)
                 .Include(t => t.Attachments)
+                .Include(t => t.Intent)
                 .Where(t => t.Customer!.CompanyId == companyId)
                 .OrderByDescending(t => t.CreatedAt)
                 .AsNoTracking()
@@ -265,6 +287,10 @@ namespace CRM.Api.Controllers
                     solver = t.Agent != null ? t.Agent.Name : null,
                     technician = t.Technician != null ? t.Technician.Name : null,
                     createdAt = t.CreatedAt,
+                    intent = t.Intent != null ? t.Intent.IntentName : null,
+                    intentConfidence = t.IntentConfidence,
+                    urgency = t.Urgency,
+                    urgencyConfidence = t.UrgencyConfidence,
                     attachments = t.Attachments.Select(a => new
                     {
                         id = a.Id,
@@ -513,29 +539,34 @@ namespace CRM.Api.Controllers
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value!.Trim()));
 
-            var sentimentResult = await _sentimentAnalysisService.AnalyzeAsync(ticketText);
-            var generatedPriorityName = SentimentAnalysisService.ResolvePriorityName(
-                sentimentResult.Sentiment,
-                sentimentResult.Confidence);
+            // ── Intent Analysis ──
+            var intentResult = await _intentAnalysisService.AnalyzeAsync(ticketText);
+
+            // ── Urgency Analysis ──
+            var urgencyResult = await _urgencyAnalysisService.AnalyzeAsync(ticketText);
+
+            // ── Business Rules Engine ──
+            var priorityResult = await _priorityEngineService.ResolvePriorityAsync(
+                description: request.Description,
+                customerId: userId,
+                intent: intentResult.Intent,
+                intentConfidence: intentResult.Confidence,
+                urgency: urgencyResult.Urgency,
+                urgencyConfidence: urgencyResult.Confidence);
 
             var priority = await _db.Priorities
                 .AsNoTracking()
-                .FirstOrDefaultAsync(p => p.PriorityName == generatedPriorityName)
+                .FirstOrDefaultAsync(p => p.PriorityName == priorityResult.PriorityName)
                 ?? await _db.Priorities
                     .AsNoTracking()
                     .FirstOrDefaultAsync(p => p.PriorityName == "Normal");
 
-            var slaDays = generatedPriorityName switch
-            {
-                "Critical" => 1,
-                "High" => 2,
-                "Normal" => 3,
-                "Low" => 4,
-                _ => 3
-            };
-
-            var slaDeadline = DateTime.UtcNow.AddDays(slaDays);
+            var slaDeadline = DateTime.UtcNow.AddDays(priorityResult.SlaDays);
             var priorityId = priority?.Id ?? 2;
+
+            var intentEntity = await _db.Intents
+                .AsNoTracking()
+                .FirstOrDefaultAsync(i => i.IntentName == intentResult.Intent);
 
             var ticket = new Ticket
             {
@@ -544,8 +575,10 @@ namespace CRM.Api.Controllers
                 Description = request.Description,
                 Status = "Waiting",
                 PriorityId = priorityId,
-                Sentiment = sentimentResult.Sentiment,
-                SentimentConfidence = sentimentResult.Confidence,
+                IntentId = intentEntity?.Id,
+                IntentConfidence = intentResult.Confidence,
+                Urgency = urgencyResult.Urgency,
+                UrgencyConfidence = urgencyResult.Confidence,
                 UserChoosenPriorityId = request.UserPriorityId,
                 SlaDeadline = slaDeadline,
                 SlaBreached = false,
