@@ -1,0 +1,122 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
+using CRM.Api.Data;
+using CRM.Api.Models;
+using CRM.Api.Services;
+using Supabase.Storage;
+
+namespace CRM.Api.Controllers
+{
+    [Authorize]
+    [ApiController]
+    [Route("api/company/settings")]
+    public class CompanySettingsController : BaseController
+    {
+        private readonly CompanyService _companyService;
+        private readonly AppDbContext _db;
+        private readonly Supabase.Client _supabase;
+
+        private const string LOGO_BUCKET = "company-logos";
+
+        public CompanySettingsController(
+            CompanyService companyService,
+            RoleService roleService,
+            AppDbContext db,
+            Supabase.Client supabase)
+            : base(roleService)
+        {
+            _companyService = companyService;
+            _db = db;
+            _supabase = supabase;
+        }
+
+        /// <summary>
+        /// GET /api/company/settings — Get company settings for the current user's company
+        /// </summary>
+        [HttpGet]
+        public async Task<IActionResult> GetSettings()
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
+
+            var settings = await _companyService.GetSettingsAsync(companyId.Value);
+            if (settings is null) return NotFound("Company not found.");
+
+            return Ok(settings);
+        }
+
+        /// <summary>
+        /// PUT /api/company/settings — Update company settings for the current user's company
+        /// </summary>
+        [HttpPut]
+        public async Task<IActionResult> UpdateSettings([FromBody] CompanySettingsDto dto)
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
+
+            var updated = await _companyService.UpdateSettingsAsync(companyId.Value, dto);
+            if (updated is null) return NotFound("Company not found.");
+
+            return Ok(updated);
+        }
+
+        /// <summary>
+        /// POST /api/company/settings/logo — Upload company logo to Supabase Storage
+        /// </summary>
+        [HttpPost("logo")]
+        [RequestSizeLimit(5 * 1024 * 1024)] // 5 MB max
+        public async Task<IActionResult> UploadLogo(IFormFile file)
+        {
+            if (file is null || file.Length == 0)
+                return BadRequest("No file provided.");
+
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
+
+            // Validate file type
+            var allowedTypes = new[] { "image/png", "image/jpeg", "image/webp", "image/gif" };
+            if (!allowedTypes.Contains(file.ContentType))
+                return BadRequest("Only PNG, JPEG, WebP, and GIF files are allowed.");
+
+            await _supabase.InitializeAsync();
+
+            // Ensure bucket exists (public bucket)
+            try
+            {
+                await _supabase.Storage.CreateBucket(LOGO_BUCKET, new BucketUpsertOptions { Public = true });
+            }
+            catch
+            {
+                // Bucket likely already exists — ignore
+            }
+
+            // Generate unique file path: companyId/timestamp_ext
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            var filePath = $"{companyId}/{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}{ext}";
+
+            // Read file bytes
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms);
+            var bytes = ms.ToArray();
+
+            // Upload to Supabase Storage
+            var bucket = _supabase.Storage.From(LOGO_BUCKET);
+            await bucket.Upload(bytes, filePath);
+
+            // Get public URL
+            var publicUrl = bucket.GetPublicUrl(filePath);
+
+            // Update company logo_url in database
+            var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId);
+            if (company is not null)
+            {
+                company.LogoUrl = publicUrl;
+                await _db.SaveChangesAsync();
+            }
+
+            return Ok(new { logoUrl = publicUrl });
+        }
+    }
+}
