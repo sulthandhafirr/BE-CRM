@@ -23,7 +23,7 @@ namespace CRM.Api.Controllers
 
         // GET /api/dashboard/stats — cs_agent, admin, customer
         [HttpGet("stats")]
-        public async Task<IActionResult> GetStats()
+        public async Task<IActionResult> GetStats([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)
         {
             var (role, companyId) = await GetCurrentUserRoleAndCompany();
 
@@ -34,8 +34,10 @@ namespace CRM.Api.Controllers
 
                 var totalCsAgent = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 2 && p.CompanyId == companyId);
                 var totalTechnician = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 3 && p.CompanyId == companyId);
-                var activeTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.CustomerId == userId && t.Status != "Solved");
-                var solvedTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.CustomerId == userId && t.Status == "Solved");
+                var activeTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.CustomerId == userId && t.Status != "Solved"
+                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate));
+                var solvedTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.CustomerId == userId && t.Status == "Solved"
+                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate));
                 var totalMyTicket = activeTicket + solvedTicket;
 
                 return Ok(new DashboardStats
@@ -51,13 +53,16 @@ namespace CRM.Api.Controllers
 
             if (role == "technician")
             {
-                var activeTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.TechnicianId == userId && t.Status != "Solved");
-                var solvedTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.TechnicianId == userId && t.Status == "Solved");
+                var activeTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.TechnicianId == userId && t.Status != "Solved"
+                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate));
+                var solvedTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.TechnicianId == userId && t.Status == "Solved"
+                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate));
                 var totalMyTicket = activeTicket + solvedTicket;
 
                 var technicianPriorityCounts = await _db.Tickets
                     .AsNoTracking()
-                    .Where(t => t.TechnicianId == userId && t.Priority != null)
+                    .Where(t => t.TechnicianId == userId && t.Priority != null
+                        && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate))
                     .GroupBy(t => t.Priority!.PriorityName)
                     .Select(g => new { Priority = g.Key, Count = g.Count() })
                     .ToListAsync();
@@ -95,24 +100,28 @@ namespace CRM.Api.Controllers
             // query: group tickets by status + total
             var ticketCounts = await _db.Tickets
                 .AsNoTracking()
-                .Where(t => t.Customer!.CompanyId == companyId)
+                .Where(t => t.Customer!.CompanyId == companyId
+                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate))
                 .GroupBy(t => t.Status)
                 .Select(g => new { Status = g.Key, Count = g.Count() })
                 .ToListAsync();
 
             var myAvgResponseTimeSec = await _db.Tickets
                 .AsNoTracking()
-                .Where(t => t.AgentId == userId && t.ResponseTimeSec != null)
+                .Where(t => t.AgentId == userId && t.ResponseTimeSec != null
+                    && (!startDate.HasValue || t.ResolvedAt >= startDate) && (!endDate.HasValue || t.ResolvedAt <= endDate))
                 .AverageAsync(t => (double?)t.ResponseTimeSec);
 
             var myAvgResolutionTimeSec = await _db.Tickets
                 .AsNoTracking()
-                .Where(t => t.AgentId == userId && t.Status == "Solved" && t.ResolutionTimeSec != null)
+                .Where(t => t.AgentId == userId && t.Status == "Solved" && t.ResolutionTimeSec != null
+                    && (!startDate.HasValue || t.ResolvedAt >= startDate) && (!endDate.HasValue || t.ResolvedAt <= endDate))
                 .AverageAsync(t => (double?)t.ResolutionTimeSec);
             
             var priorityCounts = await _db.Tickets
                 .AsNoTracking()
-                .Where(t => t.Priority != null && t.Customer!.CompanyId == companyId)
+                .Where(t => t.Priority != null && t.Customer!.CompanyId == companyId
+                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate))
                 .GroupBy(t => t.Priority!.PriorityName)
                 .Select(g => new { Priority = g.Key, Count = g.Count() })
                 .ToListAsync();

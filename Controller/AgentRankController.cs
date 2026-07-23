@@ -18,14 +18,19 @@ namespace CRM.Api.Controllers
 
         // GET /api/rank/agents-rank
         [HttpGet("agents-rank")]
-        public async Task<IActionResult> GetAgentKpiRanking()
+        public async Task<IActionResult> GetAgentKpiRanking([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)
         {
             var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "admin" && role != "cs_agent") return Forbid();
 
+            // only consider tickets that have an agent assigned
             var tickets = await _db.Tickets
                 .AsNoTracking()
-                .Where(t => t.AgentId != null && t.Customer!.CompanyId == companyId)
+                .Where(t => t.AgentId != null 
+                    && t.Customer!.CompanyId == companyId
+                    && t.ResolvedAt != null
+                    && (!startDate.HasValue || t.ResolvedAt >= startDate) 
+                    && (!endDate.HasValue || t.ResolvedAt <= endDate))
                 .Select(t => new
                 {
                     t.AgentId,
@@ -58,10 +63,10 @@ namespace CRM.Api.Controllers
                         double responsePenalty = Math.Min(responseHours / 1.0 * 10, 30);
                         score -= responsePenalty;
                     }
-                    else
-                    {
-                        score -= 30; // no response recorded = max penalty
-                    }
+                    // else if (t.SlaBreached)
+                    // {
+                    //     score -= 30; // no response recorded = max penalty
+                    // }
 
                     // Resolution time penalty relative to SLA (max -30pts)
                     if (t.ResolutionTimeSec.HasValue)
@@ -79,12 +84,12 @@ namespace CRM.Api.Controllers
                         double resolutionPenalty = Math.Min(resolutionRatio * 15, 30);
                         score -= resolutionPenalty;
                     }
-                    else
-                    {
-                        score -= 30; // unresolved = max penalty
-                    }
+                    // else if (t.SlaBreached)
+                    // {
+                    //     score -= 30; // unresolved = max penalty
+                    // }
 
-                    // SLA breach penalty
+                    // 
                     if (t.SlaBreached) score -= 30;
 
                     // Priority
