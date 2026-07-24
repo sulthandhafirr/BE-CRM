@@ -155,9 +155,7 @@ static async Task EnsureTicketSentimentColumnsAsync(IServiceProvider serviceProv
         ADD COLUMN IF NOT EXISTS sentiment text,
         ADD COLUMN IF NOT EXISTS sentiment_confidence double precision,
         ADD COLUMN IF NOT EXISTS intent text,
-        ADD COLUMN IF NOT EXISTS intent_confidence double precision,
-        ADD COLUMN IF NOT EXISTS urgency text,
-        ADD COLUMN IF NOT EXISTS urgency_confidence double precision;");
+        ADD COLUMN IF NOT EXISTS intent_confidence double precision;");
 }
 
 static void LoadDotEnvFromKnownLocations()
