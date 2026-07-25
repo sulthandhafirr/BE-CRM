@@ -147,7 +147,7 @@ namespace CRM.Api.Services
                 Role = role.RoleName ?? string.Empty,
                 CompanyId = role.CompanyId,
                 IsSystem = role.IsSystem,
-                UserCount = role.Profiles?.Count ?? 0,
+                UserCount = role.Profiles?.Count(p => p.CompanyId == role.CompanyId) ?? 0,
                 Permissions = DeserializePermissions(role.RolePermission?.Permissions ?? "{}"),
             };
         }
