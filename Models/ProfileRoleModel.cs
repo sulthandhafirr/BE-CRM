@@ -6,12 +6,41 @@ namespace CRM.Api.Models
     [Table("roles", Schema = "public")]
     public class Role
     {
-        [Key] //Primary Key
+        [Key]
         [Column("id")]
         public int Id { get; set; }
 
         [Column("role")]
         public string? RoleName { get; set; }
+
+        [Column("company_id")]
+        public int CompanyId { get; set; }
+
+        [ForeignKey("CompanyId")]
+        public Company? Company { get; set; }
+
+        [Column("is_system")]
+        public bool IsSystem { get; set; }
+
+        public RolePermission? RolePermission { get; set; }
+        public ICollection<Profile> Profiles { get; set; } = new List<Profile>();
+    }
+
+    [Table("role_permissions", Schema = "public")]
+    public class RolePermission
+    {
+        [Key]
+        [Column("id")]
+        public int Id { get; set; }
+
+        [Column("role_id")]
+        public int RoleId { get; set; }
+
+        [ForeignKey("RoleId")]
+        public Role? Role { get; set; }
+
+        [Column("permissions", TypeName = "jsonb")]
+        public string Permissions { get; set; } = "{}";
     }
 
     [Table("skills", Schema = "public")]
@@ -42,7 +71,7 @@ namespace CRM.Api.Models
     {
         [Key]
         [Column("id")]
-        public Guid Id { get; set; } //Guid = UUID
+        public Guid Id { get; set; }
 
         [Column("email")]
         public string? Email { get; set; }

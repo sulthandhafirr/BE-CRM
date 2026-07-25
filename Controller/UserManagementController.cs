@@ -41,13 +41,16 @@ namespace CRM.Api.Controllers
             if (request.AuthUserId == Guid.Empty)
                 return BadRequest(new AddUserResponse { Success = false, Message = "AuthUserId is required." });
 
-            if (request.RoleId < 1 || request.RoleId > 3)
-                return BadRequest(new AddUserResponse { Success = false, Message = "Invalid role." });
-
             var adminId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
             var adminProfile = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == adminId);
             if (adminProfile == null)
                 return Unauthorized(new AddUserResponse { Success = false, Message = "Admin not found." });
+
+            // Validate that the role exists and belongs to the same company
+            var role = await _db.Roles.AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Id == request.RoleId && r.CompanyId == adminProfile.CompanyId);
+            if (role == null)
+                return BadRequest(new AddUserResponse { Success = false, Message = "Invalid role." });
 
             var emailExists = await _db.Profiles.AnyAsync(p => p.Email == request.Email);
             if (emailExists)

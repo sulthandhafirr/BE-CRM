@@ -21,6 +21,7 @@ namespace CRM.Api.Data
         public DbSet<Notification> Notifications { get; set; } = null!;
         public DbSet<Tier> Tiers { get; set; } = null!;
         public DbSet<ProfileTier> ProfileTiers { get; set; } = null!;
+        public DbSet<RolePermission> RolePermissions { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
