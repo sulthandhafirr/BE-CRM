@@ -94,7 +94,7 @@ namespace CRM.Api.Services
 
         private static readonly HashSet<string> DeprecatedStatusNames = new(StringComparer.OrdinalIgnoreCase)
         {
-            "Open", "Pending", "Closed", "Solved", "Progress", "On Progress", "Completed",
+            "Open", "Pending", "Closed", "In Progress", "On Progress", "Resolved", "Completed",
         };
 
         private static TicketStatusConfigDto DeserializeTicketStatusConfig(string json)
@@ -134,8 +134,8 @@ namespace CRM.Api.Services
             return new List<TicketStatusItem>
             {
                 new() { Id = "waiting", Name = "Waiting", Color = "amber", Active = true },
-                new() { Id = "in-progress", Name = "In Progress", Color = "blue", Active = true },
-                new() { Id = "resolved", Name = "Resolved", Color = "green", Active = true },
+                new() { Id = "progress", Name = "Progress", Color = "blue", Active = true },
+                new() { Id = "solved", Name = "Solved", Color = "green", Active = true },
             };
         }
 
