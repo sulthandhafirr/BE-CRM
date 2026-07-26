@@ -45,5 +45,8 @@ namespace CRM.Api.Models
 
         [Column("ticket_status_config", TypeName = "jsonb")]
         public string TicketStatusConfig { get; set; } = "{}";
+
+        [Column("sla_config", TypeName = "jsonb")]
+        public string SlaConfig { get; set; } = "{}";
     }
 }

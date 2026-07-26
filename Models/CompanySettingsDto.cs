@@ -47,4 +47,20 @@ namespace CRM.Api.Models
         public bool AllowTicketReopen { get; set; } = true;
         public int AutoCloseTicketAfterDays { get; set; } = 7;
     }
+
+    // ── SLA Rules Config ──────────────────────────────────────────────
+
+    public class SlaRuleItem
+    {
+        public string Priority { get; set; } = string.Empty;
+        public int FirstResponseHours { get; set; }
+        public int ResolutionHours { get; set; }
+    }
+
+    public class SlaRulesConfigDto
+    {
+        public bool EnableSlaMonitoring { get; set; } = true;
+        public int NotifyBeforeBreachedMinutes { get; set; } = 30;
+        public List<SlaRuleItem> Rules { get; set; } = new();
+    }
 }

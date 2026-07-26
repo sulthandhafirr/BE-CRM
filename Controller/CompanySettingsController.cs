@@ -148,5 +148,35 @@ namespace CRM.Api.Controllers
 
             return Ok(updated);
         }
+
+        /// <summary>
+        /// GET /api/company/settings/sla — Get SLA rules configuration
+        /// </summary>
+        [HttpGet("sla")]
+        public async Task<IActionResult> GetSlaConfig()
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
+
+            var config = await _companyService.GetSlaConfigAsync(companyId.Value);
+            if (config is null) return NotFound("Company not found.");
+
+            return Ok(config);
+        }
+
+        /// <summary>
+        /// PUT /api/company/settings/sla — Update SLA rules configuration
+        /// </summary>
+        [HttpPut("sla")]
+        public async Task<IActionResult> UpdateSlaConfig([FromBody] SlaRulesConfigDto dto)
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
+
+            var updated = await _companyService.UpdateSlaConfigAsync(companyId.Value, dto);
+            if (updated is null) return NotFound("Company not found.");
+
+            return Ok(updated);
+        }
     }
 }

@@ -139,6 +139,72 @@ namespace CRM.Api.Services
             };
         }
 
+        // ── SLA Rules Config ──────────────────────────────────────────
+
+        public async Task<SlaRulesConfigDto?> GetSlaConfigAsync(int companyId)
+        {
+            var company = await _db.Companies
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == companyId);
+
+            if (company is null) return null;
+
+            return DeserializeSlaConfig(company.SlaConfig);
+        }
+
+        public async Task<SlaRulesConfigDto?> UpdateSlaConfigAsync(
+            int companyId, SlaRulesConfigDto dto)
+        {
+            var company = await _db.Companies
+                .FirstOrDefaultAsync(c => c.Id == companyId);
+
+            if (company is null) return null;
+
+            company.SlaConfig = JsonSerializer.Serialize(dto, JsonOptions);
+            await _db.SaveChangesAsync();
+
+            return DeserializeSlaConfig(company.SlaConfig);
+        }
+
+        private static SlaRulesConfigDto DeserializeSlaConfig(string json)
+        {
+            try
+            {
+                var config = JsonSerializer.Deserialize<SlaRulesConfigDto>(json, JsonOptions)
+                    ?? new SlaRulesConfigDto();
+
+                if (config.Rules.Count == 0)
+                    config.Rules = GetDefaultSlaRules();
+
+                return config;
+            }
+            catch
+            {
+                return CreateDefaultSlaConfig();
+            }
+        }
+
+        private static SlaRulesConfigDto CreateDefaultSlaConfig()
+        {
+            return new SlaRulesConfigDto
+            {
+                EnableSlaMonitoring = true,
+                NotifyBeforeBreachedMinutes = 30,
+                Rules = GetDefaultSlaRules(),
+            };
+        }
+
+        private static List<SlaRuleItem> GetDefaultSlaRules()
+        {
+            return new List<SlaRuleItem>
+            {
+                new() { Priority = "Critical", FirstResponseHours = 1, ResolutionHours = 4 },
+                new() { Priority = "High", FirstResponseHours = 2, ResolutionHours = 8 },
+                new() { Priority = "Medium", FirstResponseHours = 8, ResolutionHours = 24 },
+                new() { Priority = "Low", FirstResponseHours = 24, ResolutionHours = 72 },
+            };
+        }
+
         // ── Helpers ───────────────────────────────────────────────────
 
         private static CompanySettingsResponse MapToResponse(Company company)
