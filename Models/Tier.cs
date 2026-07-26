@@ -12,6 +12,15 @@ namespace CRM.Api.Models
 
         [Column("tier")]
         public string? TierName { get; set; }
+
+        [Column("company_id")]
+        public int CompanyId { get; set; }
+
+        [Column("color")]
+        public string Color { get; set; } = "#6b7280";
+
+        [ForeignKey("CompanyId")]
+        public Company? Company { get; set; }
     }
 
     [Table("profile_tier", Schema = "public")]
