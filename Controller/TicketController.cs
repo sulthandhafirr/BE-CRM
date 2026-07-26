@@ -62,7 +62,7 @@ namespace CRM.Api.Controllers
                 .Include(t => t.Agent)       // cs_agent
                 .Include(t => t.Technician)  // technician
                 .AsNoTracking()
-                .Where(t => t.Status != "Solved");
+                .Where(t => t.Status != "Resolved");
 
             if (role == "customer")
                 query = query.Where(t => t.CustomerId == userId);
@@ -98,7 +98,7 @@ namespace CRM.Api.Controllers
 
             var tickets = await _db.Tickets
                 .Include(t => t.Priority)
-                .Where(t => t.CustomerId == userId && t.Status == "Solved")
+                .Where(t => t.CustomerId == userId && t.Status == "Resolved")
                 .OrderByDescending(t => t.ResolvedAt)
                 .AsNoTracking()
                 .Select(t => new
@@ -131,7 +131,7 @@ namespace CRM.Api.Controllers
                 // .Include(t => t.Agent)
                 // .Include(t => t.Technician)
                 .AsNoTracking()
-                .Where(t => t.Status == "Solved" && t.Customer!.CompanyId == companyId);
+                .Where(t => t.Status == "Resolved" && t.Customer!.CompanyId == companyId);
 
             if (role == "cs_agent")
                 query = query.Where(t => t.AgentId == userId);
@@ -372,8 +372,8 @@ namespace CRM.Api.Controllers
                 }
             }
 
-            // Count ResolutionTime if ticket status change to "Solved"
-            if (request.Status == "Solved" && ticket.ResolutionTimeSec == null)
+            // Count ResolutionTime if ticket status change to "Resolved"
+            if (request.Status == "Resolved" && ticket.ResolutionTimeSec == null)
             {
                 var resolvedAt = request.ResolvedAt ?? DateTime.UtcNow;
                 ticket.ResolvedAt = resolvedAt;
@@ -389,7 +389,7 @@ namespace CRM.Api.Controllers
             // notfication
             var customer = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.CustomerId);
 
-            if (request.Status == "Solved")
+            if (request.Status == "Resolved")
             {
                 if (customer?.Email != null)
                     _ = _emailService.SendTicketResolvedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
@@ -659,7 +659,7 @@ namespace CRM.Api.Controllers
             if (ticket == null) return NotFound("Ticket not found");
 
             ticket.AgentId = userId;
-            ticket.Status = "Progress";
+            ticket.Status = "In Progress";
 
             // Hanya isi first_response_at jika belum pernah diisi sebelumnya
             if (ticket.FirstResponseAt == null)

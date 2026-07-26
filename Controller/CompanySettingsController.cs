@@ -118,5 +118,35 @@ namespace CRM.Api.Controllers
 
             return Ok(new { logoUrl = publicUrl });
         }
+
+        /// <summary>
+        /// GET /api/company/settings/ticket-status — Get ticket status configuration
+        /// </summary>
+        [HttpGet("ticket-status")]
+        public async Task<IActionResult> GetTicketStatusConfig()
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
+
+            var config = await _companyService.GetTicketStatusConfigAsync(companyId.Value);
+            if (config is null) return NotFound("Company not found.");
+
+            return Ok(config);
+        }
+
+        /// <summary>
+        /// PUT /api/company/settings/ticket-status — Update ticket status configuration
+        /// </summary>
+        [HttpPut("ticket-status")]
+        public async Task<IActionResult> UpdateTicketStatusConfig([FromBody] TicketStatusConfigDto dto)
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
+
+            var updated = await _companyService.UpdateTicketStatusConfigAsync(companyId.Value, dto);
+            if (updated is null) return NotFound("Company not found.");
+
+            return Ok(updated);
+        }
     }
 }

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CRM.Api.Data;
 using CRM.Api.Models;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +8,12 @@ namespace CRM.Api.Services
     public class CompanyService
     {
         private readonly AppDbContext _db;
+
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        };
 
         public CompanyService(AppDbContext db)
         {
@@ -57,6 +64,82 @@ namespace CRM.Api.Services
 
             return MapToResponse(company);
         }
+
+        // ── Ticket Status Config ──────────────────────────────────────
+
+        public async Task<TicketStatusConfigDto?> GetTicketStatusConfigAsync(int companyId)
+        {
+            var company = await _db.Companies
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == companyId);
+
+            if (company is null) return null;
+
+            return DeserializeTicketStatusConfig(company.TicketStatusConfig);
+        }
+
+        public async Task<TicketStatusConfigDto?> UpdateTicketStatusConfigAsync(
+            int companyId, TicketStatusConfigDto dto)
+        {
+            var company = await _db.Companies
+                .FirstOrDefaultAsync(c => c.Id == companyId);
+
+            if (company is null) return null;
+
+            company.TicketStatusConfig = JsonSerializer.Serialize(dto, JsonOptions);
+            await _db.SaveChangesAsync();
+
+            return DeserializeTicketStatusConfig(company.TicketStatusConfig);
+        }
+
+        private static readonly HashSet<string> DeprecatedStatusNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Open", "Pending", "Closed", "Solved", "Progress", "On Progress", "Completed",
+        };
+
+        private static TicketStatusConfigDto DeserializeTicketStatusConfig(string json)
+        {
+            try
+            {
+                var config = JsonSerializer.Deserialize<TicketStatusConfigDto>(json, JsonOptions)
+                    ?? new TicketStatusConfigDto();
+
+                // Return defaults if empty OR if config still contains deprecated status names
+                if (config.Statuses.Count == 0
+                    || config.Statuses.Any(s => DeprecatedStatusNames.Contains(s.Name)))
+                {
+                    return CreateDefaultConfig();
+                }
+
+                return config;
+            }
+            catch
+            {
+                return CreateDefaultConfig();
+            }
+        }
+
+        private static TicketStatusConfigDto CreateDefaultConfig()
+        {
+            return new TicketStatusConfigDto
+            {
+                Statuses = GetDefaultStatuses(),
+                AllowTicketReopen = true,
+                AutoCloseTicketAfterDays = 7,
+            };
+        }
+
+        private static List<TicketStatusItem> GetDefaultStatuses()
+        {
+            return new List<TicketStatusItem>
+            {
+                new() { Id = "waiting", Name = "Waiting", Color = "amber", Active = true },
+                new() { Id = "in-progress", Name = "In Progress", Color = "blue", Active = true },
+                new() { Id = "resolved", Name = "Resolved", Color = "green", Active = true },
+            };
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────
 
         private static CompanySettingsResponse MapToResponse(Company company)
         {

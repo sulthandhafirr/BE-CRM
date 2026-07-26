@@ -30,4 +30,21 @@ namespace CRM.Api.Models
         public string? LogoUrl { get; set; }
         public DateTime CreatedAt { get; set; }
     }
+
+    // ── Ticket Status Config ──────────────────────────────────────────
+
+    public class TicketStatusItem
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Color { get; set; } = "blue";
+        public bool Active { get; set; } = true;
+    }
+
+    public class TicketStatusConfigDto
+    {
+        public List<TicketStatusItem> Statuses { get; set; } = new();
+        public bool AllowTicketReopen { get; set; } = true;
+        public int AutoCloseTicketAfterDays { get; set; } = 7;
+    }
 }

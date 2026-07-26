@@ -42,5 +42,8 @@ namespace CRM.Api.Models
 
         [Column("logo_url")]
         public string? LogoUrl { get; set; }
+
+        [Column("ticket_status_config", TypeName = "jsonb")]
+        public string TicketStatusConfig { get; set; } = "{}";
     }
 }
