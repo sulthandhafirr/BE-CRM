@@ -126,6 +126,18 @@ namespace CRM.Api.Controllers
                 .Select(g => new { Priority = g.Key, Count = g.Count() })
                 .ToListAsync();
 
+            var intentCounts = await _db.Tickets
+                .AsNoTracking()
+                .Where(t => t.Customer!.CompanyId == companyId
+                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate))
+                .GroupBy(t => t.Intent != null ? t.Intent.IntentName : null)
+                .Select(g => new { Intent = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            var ticketByIntent = intentCounts
+                .GroupBy(x => x.Intent ?? "Unclassified")
+                .ToDictionary(g => g.Key, g => g.Sum(x => x.Count));
+
             var totalCsAgentFull = profileCounts.FirstOrDefault(p => p.RoleId == 2)?.Count ?? 0;
             var totalTechnicianFull = profileCounts.FirstOrDefault(p => p.RoleId == 3)?.Count ?? 0;
             var totalCustomer = profileCounts.FirstOrDefault(p => p.RoleId == 1)?.Count ?? 0;
@@ -159,9 +171,57 @@ namespace CRM.Api.Controllers
                     High = high,
                     Critical = critical
                 },
+                TicketByIntent = ticketByIntent,
                 MyAvgResponseTime = myAvgResponseTimeSec,
                 MyAvgResolutionTime = myAvgResolutionTimeSec
             });
+        }
+        // GET /api/dashboard/ticket-trend
+        [HttpGet("ticket-trend")]
+        public async Task<IActionResult> GetTicketTrend([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (role != "admin" && role != "cs_agent") return Forbid();
+
+            // Default to "this month" if no filter passed
+            var effectiveStart = startDate.HasValue 
+                ? DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc)
+                : DateTime.SpecifyKind(new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1), DateTimeKind.Utc);
+
+            var effectiveEnd = endDate.HasValue
+                ? DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc)
+                : effectiveStart.AddMonths(1).AddDays(-1);
+
+            var daySpan = (effectiveEnd - effectiveStart).TotalDays;
+            string granularity = daySpan <= 7 ? "day" : daySpan <= 60 ? "week" : "month";
+
+            var ticketDates = await _db.Tickets
+                .AsNoTracking()
+                .Where(t => t.Customer!.CompanyId == companyId
+                    && t.CreatedAt >= effectiveStart && t.CreatedAt <= effectiveEnd)
+                .Select(t => t.CreatedAt)
+                .ToListAsync();
+
+            Func<DateTime, string> bucketKeySelector = granularity switch
+            {
+                "day" => d => d.ToString("yyyy-MM-dd"),
+                "week" => d => $"{System.Globalization.ISOWeek.GetYear(d)}-W{System.Globalization.ISOWeek.GetWeekOfYear(d):D2}",
+                "month" => d => d.ToString("yyyy-MM"),
+                _ => d => d.ToString("yyyy-MM-dd")
+            };
+
+            var buckets = ticketDates
+                .GroupBy(bucketKeySelector)
+                .Select(g => new { Label = g.Key, Count = g.Count() })
+                .OrderBy(x => x.Label)
+                .ToList();
+
+            return Ok(new { granularity, data = buckets });
+        }
+        public class TrendBucket
+        {
+            public DateTime Label { get; set; }
+            public int Count { get; set; }
         }
     }
 }

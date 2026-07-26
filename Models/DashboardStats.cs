@@ -13,6 +13,7 @@ namespace CRM.Api.Models
         public double? MyAvgResponseTime { get; set; }
         public double? MyAvgResolutionTime { get; set; }
         public TicketByPriority? TicketByPriority { get; set; }
+        public Dictionary<string, int>? TicketByIntent { get; set; }
     }
 
     public class TicketByStatus

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using CRM.Api.Data;
 using CRM.Api.Services;
+using System.Security.Claims;
 
 namespace CRM.Api.Controllers
 {
@@ -22,6 +23,8 @@ namespace CRM.Api.Controllers
         {
             var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "admin" && role != "cs_agent") return Forbid();
+
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
             // only consider tickets that have an agent assigned
             var tickets = await _db.Tickets
@@ -137,7 +140,28 @@ namespace CRM.Api.Controllers
             .OrderByDescending(a => a.avgScore)
             .ToList();
 
-            return Ok(rankings);
+            // Admin sees everyone
+            if (role == "admin")
+            {
+                return Ok(rankings);
+            }
+
+            // CS Agent only sees their own score
+            var myRank = rankings.FindIndex(a => a.agentId == userId) + 1; // +1 for 1-based rank
+            var myEntry = rankings.FirstOrDefault(a => a.agentId == userId);
+
+            if (myEntry == null)
+            {
+                return Ok(new { hasData = false });
+            }
+
+            return Ok(new
+            {
+                hasData = true,
+                rank = myRank,
+                totalAgents = rankings.Count,
+                agent = myEntry
+            });
         }
     }
 }
