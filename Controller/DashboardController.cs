@@ -29,15 +29,22 @@ namespace CRM.Api.Controllers
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
+            var effectiveStartDate = startDate.HasValue 
+                ? DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc) 
+                : (DateTime?)null;
+            var effectiveEndDate = endDate.HasValue 
+                ? DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc) 
+                : (DateTime?)null;
+
             if (role == "customer")
             {
 
                 var totalCsAgent = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 2 && p.CompanyId == companyId);
                 var totalTechnician = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 3 && p.CompanyId == companyId);
                 var activeTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.CustomerId == userId && t.Status != "Solved"
-                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate));
+                    && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate));
                 var solvedTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.CustomerId == userId && t.Status == "Solved"
-                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate));
+                    && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate));
                 var totalMyTicket = activeTicket + solvedTicket;
 
                 return Ok(new DashboardStats
@@ -54,15 +61,15 @@ namespace CRM.Api.Controllers
             if (role == "technician")
             {
                 var activeTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.TechnicianId == userId && t.Status != "Solved"
-                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate));
+                    && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate));
                 var solvedTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.TechnicianId == userId && t.Status == "Solved"
-                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate));
+                    && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate));
                 var totalMyTicket = activeTicket + solvedTicket;
 
                 var technicianPriorityCounts = await _db.Tickets
                     .AsNoTracking()
                     .Where(t => t.TechnicianId == userId && t.Priority != null
-                        && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate))
+                        && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
                     .GroupBy(t => t.Priority!.PriorityName)
                     .Select(g => new { Priority = g.Key, Count = g.Count() })
                     .ToListAsync();
@@ -101,7 +108,7 @@ namespace CRM.Api.Controllers
             var ticketCounts = await _db.Tickets
                 .AsNoTracking()
                 .Where(t => t.Customer!.CompanyId == companyId
-                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate))
+                    && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
                 .GroupBy(t => t.Status)
                 .Select(g => new { Status = g.Key, Count = g.Count() })
                 .ToListAsync();
@@ -109,19 +116,19 @@ namespace CRM.Api.Controllers
             var myAvgResponseTimeSec = await _db.Tickets
                 .AsNoTracking()
                 .Where(t => t.AgentId == userId && t.ResponseTimeSec != null
-                    && (!startDate.HasValue || t.ResolvedAt >= startDate) && (!endDate.HasValue || t.ResolvedAt <= endDate))
+                    && (!effectiveStartDate.HasValue || t.ResolvedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.ResolvedAt <= effectiveEndDate))
                 .AverageAsync(t => (double?)t.ResponseTimeSec);
 
             var myAvgResolutionTimeSec = await _db.Tickets
                 .AsNoTracking()
                 .Where(t => t.AgentId == userId && t.Status == "Solved" && t.ResolutionTimeSec != null
-                    && (!startDate.HasValue || t.ResolvedAt >= startDate) && (!endDate.HasValue || t.ResolvedAt <= endDate))
+                    && (!effectiveStartDate.HasValue || t.ResolvedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.ResolvedAt <= effectiveEndDate))
                 .AverageAsync(t => (double?)t.ResolutionTimeSec);
             
             var priorityCounts = await _db.Tickets
                 .AsNoTracking()
                 .Where(t => t.Priority != null && t.Customer!.CompanyId == companyId
-                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate))
+                    && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
                 .GroupBy(t => t.Priority!.PriorityName)
                 .Select(g => new { Priority = g.Key, Count = g.Count() })
                 .ToListAsync();
@@ -129,7 +136,7 @@ namespace CRM.Api.Controllers
             var intentCounts = await _db.Tickets
                 .AsNoTracking()
                 .Where(t => t.Customer!.CompanyId == companyId
-                    && (!startDate.HasValue || t.CreatedAt >= startDate) && (!endDate.HasValue || t.CreatedAt <= endDate))
+                    && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
                 .GroupBy(t => t.Intent != null ? t.Intent.IntentName : null)
                 .Select(g => new { Intent = g.Key, Count = g.Count() })
                 .ToListAsync();
