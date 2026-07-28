@@ -230,5 +230,69 @@ namespace CRM.Api.Controllers
             public DateTime Label { get; set; }
             public int Count { get; set; }
         }
+
+        // GET /api/dashboard/tickets-preview
+        [HttpGet("tickets-preview")]
+        public async Task<IActionResult> GetTicketsPreview(
+            [FromQuery] string? status,
+            [FromQuery] string? priority,
+            [FromQuery] string? intentKey,
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate)
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (role != "admin" && role != "cs_agent" && role != "technician") return Forbid();
+
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+            var effectiveStart = startDate.HasValue 
+                ? DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc) 
+                : (DateTime?)null;
+            var effectiveEnd = endDate.HasValue 
+                ? DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc) 
+                : (DateTime?)null;
+
+            var query = _db.Tickets.AsNoTracking().AsQueryable();
+
+            // Scope by role — technician sees only their own, admin/cs_agent see company-wide
+            query = role == "technician"
+                ? query.Where(t => t.TechnicianId == userId)
+                : query.Where(t => t.Customer!.CompanyId == companyId);
+
+            if (!string.IsNullOrEmpty(status))
+                query = query.Where(t => t.Status!.ToLower() == status.ToLower());
+
+            if (!string.IsNullOrEmpty(priority))
+                query = query.Where(t => t.Priority!.PriorityName!.ToLower() == priority.ToLower());
+
+            if (!string.IsNullOrEmpty(intentKey))
+            {
+                if (intentKey == "Unclassified")
+                    query = query.Where(t => t.Intent == null);
+                else
+                    query = query.Where(t => t.Intent!.IntentName == intentKey);
+            }
+
+            if (effectiveStart.HasValue)
+                query = query.Where(t => t.CreatedAt >= effectiveStart);
+
+            if (effectiveEnd.HasValue)
+                query = query.Where(t => t.CreatedAt <= effectiveEnd);
+
+            var tickets = await query
+                .OrderByDescending(t => t.CreatedAt)
+                .Select(t => new
+                {
+                    id = t.Id,
+                    subject = t.Subject,
+                    status = t.Status,
+                    priority = t.Priority!.PriorityName,
+                    intent = t.Intent != null ? t.Intent.IntentName : "Unclassified",
+                    createdAt = t.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(tickets);
+        }
     }
 }

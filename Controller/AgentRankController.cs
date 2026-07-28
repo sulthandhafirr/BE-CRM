@@ -26,14 +26,22 @@ namespace CRM.Api.Controllers
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
+            var effectiveStart = startDate.HasValue 
+                ? DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc)
+                : (DateTime?)null;
+
+            var effectiveEnd = endDate.HasValue
+                ? DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc)
+                : (DateTime?)null;
+
             // only consider tickets that have an agent assigned
             var tickets = await _db.Tickets
                 .AsNoTracking()
                 .Where(t => t.AgentId != null 
                     && t.Customer!.CompanyId == companyId
                     && t.ResolvedAt != null
-                    && (!startDate.HasValue || t.ResolvedAt >= startDate) 
-                    && (!endDate.HasValue || t.ResolvedAt <= endDate))
+                    && (!effectiveStart.HasValue || t.ResolvedAt >= effectiveStart) 
+                    && (!effectiveEnd.HasValue || t.ResolvedAt <= effectiveEnd))
                 .Select(t => new
                 {
                     t.AgentId,
@@ -55,6 +63,10 @@ namespace CRM.Api.Controllers
             {
                 var agentTickets = g.ToList();
 
+                double totalResponsePenalty = 0;
+                double totalResolutionPenalty = 0;
+                double totalBreachPenalty = 0;
+
                 var scores = agentTickets.Select(t =>
                 {
                     double score = 100.0;
@@ -65,6 +77,7 @@ namespace CRM.Api.Controllers
                         double responseHours = t.ResponseTimeSec.Value / 3600.0;
                         double responsePenalty = Math.Min(responseHours / 1.0 * 10, 30);
                         score -= responsePenalty;
+                        totalResponsePenalty += responsePenalty;
                     }
                     // else if (t.SlaBreached)
                     // {
@@ -86,6 +99,7 @@ namespace CRM.Api.Controllers
                         double resolutionRatio = resolutionHours / slaHours;
                         double resolutionPenalty = Math.Min(resolutionRatio * 15, 30);
                         score -= resolutionPenalty;
+                        totalResolutionPenalty += resolutionPenalty;
                     }
                     // else if (t.SlaBreached)
                     // {
@@ -93,7 +107,11 @@ namespace CRM.Api.Controllers
                     // }
 
                     // 
-                    if (t.SlaBreached) score -= 30;
+                    if (t.SlaBreached)
+                    {
+                        score -= 30;
+                        totalBreachPenalty += 30;
+                    }
 
                     // Priority
                     double priorityWeight = t.PriorityName switch
@@ -116,7 +134,17 @@ namespace CRM.Api.Controllers
 
                     score = score * priorityWeight * tierWeight;
                     return Math.Max(0, Math.Min(100, score));
-                });
+                }).ToList();
+
+                var reasons = new Dictionary<string, double>
+                {
+                    { "slowResponse", totalResponsePenalty },
+                    { "slowResolution", totalResolutionPenalty },
+                    { "frequentBreaches", totalBreachPenalty },
+                };
+                var topReasonKey = reasons.Values.Max() > 0 
+                    ? reasons.OrderByDescending(r => r.Value).First().Key 
+                    : "consistentPerformance";
 
                 return new
                 {
@@ -134,7 +162,11 @@ namespace CRM.Api.Controllers
                         .Select(t => (double?)t.ResolutionTimeSec!.Value)
                         .DefaultIfEmpty(null)
                         .Average(),
-                    avgScore = Math.Round(scores.Average(), 2)
+                    avgScore = Math.Round(scores.Average(), 2),
+                    slaBreachRate = agentTickets.Count > 0 
+                        ? Math.Round((double)agentTickets.Count(t => t.SlaBreached) / agentTickets.Count * 100, 1) 
+                        : 0,
+                    topReasonKey,
                 };
             })
             .OrderByDescending(a => a.avgScore)
