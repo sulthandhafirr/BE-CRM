@@ -53,10 +53,6 @@ namespace CRM.Api.Services
                 company.WorkingHoursStart = dto.WorkingHoursStart;
             if (dto.WorkingHoursEnd is not null)
                 company.WorkingHoursEnd = dto.WorkingHoursEnd;
-            if (dto.TicketNumberFormat is not null)
-                company.TicketNumberFormat = dto.TicketNumberFormat;
-            if (dto.DateFormat is not null)
-                company.DateFormat = dto.DateFormat;
             // Always set logoUrl (empty string = clear, URL = set)
             company.LogoUrl = dto.LogoUrl;
 
@@ -220,8 +216,6 @@ namespace CRM.Api.Services
                 WorkingDays = company.WorkingDays,
                 WorkingHoursStart = company.WorkingHoursStart,
                 WorkingHoursEnd = company.WorkingHoursEnd,
-                TicketNumberFormat = company.TicketNumberFormat,
-                DateFormat = company.DateFormat,
                 LogoUrl = company.LogoUrl,
                 CreatedAt = default, // not stored in response for now
             };

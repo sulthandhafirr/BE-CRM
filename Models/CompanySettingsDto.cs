@@ -9,8 +9,6 @@ namespace CRM.Api.Models
         public string[]? WorkingDays { get; set; }
         public string? WorkingHoursStart { get; set; }
         public string? WorkingHoursEnd { get; set; }
-        public string? TicketNumberFormat { get; set; }
-        public string? DateFormat { get; set; }
         public string? LogoUrl { get; set; }
     }
 
@@ -25,8 +23,6 @@ namespace CRM.Api.Models
         public string[]? WorkingDays { get; set; }
         public string? WorkingHoursStart { get; set; }
         public string? WorkingHoursEnd { get; set; }
-        public string? TicketNumberFormat { get; set; }
-        public string? DateFormat { get; set; }
         public string? LogoUrl { get; set; }
         public DateTime CreatedAt { get; set; }
     }

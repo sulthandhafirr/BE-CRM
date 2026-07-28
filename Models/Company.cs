@@ -34,12 +34,6 @@ namespace CRM.Api.Models
         [Column("working_hours_end")]
         public string? WorkingHoursEnd { get; set; }
 
-        [Column("ticket_number_format")]
-        public string? TicketNumberFormat { get; set; }
-
-        [Column("date_format")]
-        public string? DateFormat { get; set; }
-
         [Column("logo_url")]
         public string? LogoUrl { get; set; }
 
