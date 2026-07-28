@@ -36,11 +36,15 @@ namespace CRM.Api.Controllers
                 ? DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc) 
                 : (DateTime?)null;
 
+            var roleIds = await _db.Roles
+                .Where(r => r.CompanyId == companyId)
+                .ToDictionaryAsync(r => r.RoleName.ToLower(), r => r.Id);
+
             if (role == "customer")
             {
 
-                var totalCsAgent = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 2 && p.CompanyId == companyId);
-                var totalTechnician = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == 3 && p.CompanyId == companyId);
+                var totalCsAgent = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == roleIds.GetValueOrDefault("cs_agent", 0) && p.CompanyId == companyId);
+                var totalTechnician = await _db.Profiles.AsNoTracking().CountAsync(p => p.RoleId == roleIds.GetValueOrDefault("technician", 0) && p.CompanyId == companyId);
                 var activeTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.CustomerId == userId && t.Status != "Solved"
                     && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate));
                 var solvedTicket = await _db.Tickets.AsNoTracking().CountAsync(t => t.CustomerId == userId && t.Status == "Solved"
@@ -145,9 +149,13 @@ namespace CRM.Api.Controllers
                 .GroupBy(x => x.Intent ?? "Unclassified")
                 .ToDictionary(g => g.Key, g => g.Sum(x => x.Count));
 
-            var totalCsAgentFull = profileCounts.FirstOrDefault(p => p.RoleId == 2)?.Count ?? 0;
-            var totalTechnicianFull = profileCounts.FirstOrDefault(p => p.RoleId == 3)?.Count ?? 0;
-            var totalCustomer = profileCounts.FirstOrDefault(p => p.RoleId == 1)?.Count ?? 0;
+            var csAgentRoleId = roleIds.GetValueOrDefault("cs_agent", 0);
+            var technicianRoleId = roleIds.GetValueOrDefault("technician", 0);
+            var customerRoleId = roleIds.GetValueOrDefault("customer", 0);
+
+            var totalCsAgentFull = profileCounts.FirstOrDefault(p => p.RoleId == csAgentRoleId)?.Count ?? 0;
+            var totalTechnicianFull = profileCounts.FirstOrDefault(p => p.RoleId == technicianRoleId)?.Count ?? 0;
+            var totalCustomer = profileCounts.FirstOrDefault(p => p.RoleId == customerRoleId)?.Count ?? 0;
             var totalTicket = ticketCounts.Sum(t => t.Count);
 
             var solved = ticketCounts.FirstOrDefault(t => t.Status == "Solved")?.Count ?? 0;
