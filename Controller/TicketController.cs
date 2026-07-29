@@ -23,6 +23,7 @@ namespace CRM.Api.Controllers
         private readonly IntentAnalysisService _intentAnalysisService;
         private readonly UrgencyAnalysisService _urgencyAnalysisService;
         private readonly PriorityEngineService _priorityEngineService;
+        private readonly DuplicateDetectionService _duplicateDetectionService;
 
         public TicketController(
             AppDbContext db,
@@ -33,6 +34,7 @@ namespace CRM.Api.Controllers
             IntentAnalysisService intentAnalysisService,
             UrgencyAnalysisService urgencyAnalysisService,
             PriorityEngineService priorityEngineService,
+            DuplicateDetectionService duplicateDetectionService,   // ← tambahan
             IConfiguration config,
             IHttpClientFactory httpClientFactory)
             : base(roleService)
@@ -46,6 +48,7 @@ namespace CRM.Api.Controllers
             _intentAnalysisService = intentAnalysisService;
             _urgencyAnalysisService = urgencyAnalysisService;
             _priorityEngineService = priorityEngineService;
+            _duplicateDetectionService = duplicateDetectionService;   // ← tambahan
         }
 
         // GET /api/tickets — customer gets their own tickets
@@ -843,6 +846,72 @@ namespace CRM.Api.Controllers
                 .ToListAsync();
 
             return Ok(comments);
+        }
+
+        // GET /api/tickets/{id}/similar — cari tiket yang kemungkinan duplikat berdasarkan makna
+        [HttpGet("{id}/similar")]
+        public async Task<IActionResult> GetSimilarTickets(long id, double threshold = 0.80)
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (role != "cs_agent" && role != "admin") return Forbid();
+
+            var source = await _db.Tickets.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id);
+            if (source == null) return NotFound("Ticket not found");
+
+            var sourceText = source.Subject ?? "";   // ← diubah, sebelumnya gabung Subject+Description
+
+            var candidateTickets = await _db.Tickets
+                .Where(t => t.Id != id && t.Customer!.CompanyId == companyId && t.Status != "Solved")
+                .Select(t => new { t.Id, t.Subject })   // ← Description tidak perlu di-select lagi
+                .ToListAsync();
+
+            var candidates = candidateTickets
+                .Select(t => new DuplicateCandidate(t.Id, t.Subject ?? ""))   // ← diubah
+                .ToList();
+
+            var result = await _duplicateDetectionService.CheckDuplicatesAsync(sourceText, candidates, threshold);
+            var scoreMap = result.Matches.ToDictionary(m => m.Id, m => m.Score);
+
+            var tickets = await _db.Tickets
+                .Where(t => scoreMap.Keys.Contains(t.Id))
+                .Include(t => t.Priority)
+                .Select(t => new
+                {
+                    id = t.Id,
+                    subject = t.Subject,
+                    status = t.Status,
+                    priority = t.Priority != null ? t.Priority.PriorityName : null,
+                    createdAt = t.CreatedAt,
+                })
+                .ToListAsync();
+
+            var ranked = tickets
+                .Select(t => new { t.id, t.subject, t.status, t.priority, t.createdAt, similarityScore = scoreMap[t.id] })
+                .OrderByDescending(t => t.similarityScore)
+                .ToList();
+
+            return Ok(new { duplicates = ranked, serviceAvailable = !result.IsFallback });
+        }
+
+        // GET /api/tickets/duplicate-counts — badge count semua tiket sekaligus (1 batch call, bukan N call)
+        [HttpGet("duplicate-counts")]
+        public async Task<IActionResult> GetDuplicateCounts(double threshold = 0.80)
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (role != "cs_agent" && role != "admin") return Forbid();
+
+            var openTickets = await _db.Tickets
+                .Where(t => t.Customer!.CompanyId == companyId && t.Status != "Solved")
+                .Select(t => new { t.Id, t.Subject })
+                .ToListAsync();
+
+            var candidates = openTickets
+                .Select(t => new DuplicateCandidate(t.Id, t.Subject ?? ""))
+                .ToList();
+
+            var counts = await _duplicateDetectionService.GetDuplicateCountsAsync(candidates, threshold);
+
+            return Ok(counts);   // { "12607290001": 1, "12607290002": 1, ... }
         }
 
         // ── Request models ────────────────────────────────────────────────────

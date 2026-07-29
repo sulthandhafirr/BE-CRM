@@ -114,6 +114,8 @@ builder.Services.AddScoped<CompanyService>();
 
 builder.Services.AddScoped<RoleManagementService>();
 
+builder.Services.AddScoped<DuplicateDetectionService>();
+
 var supabaseServiceKey = builder.Configuration["Supabase:ServiceKey"]
     ?? throw new InvalidOperationException("Supabase Service Key is not configured");
 
