@@ -89,5 +89,24 @@ namespace CRM.Api.Services
                     <p>They will reach out to you shortly.</p>
                     <p>Thank you for your patience.</p>"
             );
+
+        public Task SendAssignedToTechnicianAsync(string toEmail, string toName, string ticketSubject, long ticketId)
+            => SendAsync(
+                toEmail, toName,
+                "You Have Been Assigned a New Ticket",
+                $@"<p>Hi <b>{toName}</b>,</p>
+                    <p>You have been assigned to a new ticket <b>'{ticketSubject}'</b> <i>(#{ticketId})</i>.</p>
+                    <p>Please log in to view the ticket and take necessary actions.</p>
+                    <p>Thank you for your support.</p>"
+            );
+        
+        public Task SendTechnicianResolvedAsync(string toEmail, string toName, string ticketSubject, long ticketId)
+            => SendAsync(
+                toEmail, toName,
+                "Ticket Resolved",
+                $@"<p>Hi <b>{toName}</b>,</p>
+                    <p>The ticket <b>'{ticketSubject}'</b> <i>(#{ticketId})</i> you were assigned to has been marked as resolved.</p>
+                    <p>Thank you for your support.</p>"
+            );
     }
 }

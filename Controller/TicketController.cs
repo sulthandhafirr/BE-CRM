@@ -396,6 +396,16 @@ namespace CRM.Api.Controllers
             {
                 if (customer?.Email != null)
                     _ = _emailService.SendTicketResolvedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
+
+                if (ticket.TechnicianId.HasValue)
+                {
+                    var assignedTechnician = await _db.Profiles.AsNoTracking()
+                        .FirstOrDefaultAsync(p => p.Id == ticket.TechnicianId.Value);
+
+                    if (assignedTechnician?.Email != null)
+                        _ = _emailService.SendTechnicianResolvedAsync(assignedTechnician.Email, assignedTechnician.Name ?? "Technician", ticket.Subject ?? "Your Ticket", ticket.Id);
+                }
+
                 await _notificationService.CreateAsync(ticket.CustomerId, $"Your ticket #{ticket.Id} '{ticket.Subject}' has been resolved.");
             }
 
@@ -404,6 +414,13 @@ namespace CRM.Api.Controllers
             {
                 if (customer?.Email != null)
                     _ = _emailService.SendTechnicianAssignedAsync(customer.Email, customer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id);
+
+                var assignedTechnician = await _db.Profiles.AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Id == request.TechnicianId.Value);
+
+                if (assignedTechnician?.Email != null)
+                    _ = _emailService.SendAssignedToTechnicianAsync(assignedTechnician.Email, assignedTechnician.Name ?? "Technician", ticket.Subject ?? "Your Ticket", ticket.Id);
+
                 await _notificationService.CreateAsync(ticket.CustomerId, $"A technician has been assigned to your ticket #{ticket.Id} '{ticket.Subject}'.");
                 await _notificationService.CreateAsync(request.TechnicianId.Value, $"You have been assigned to ticket #{ticket.Id} '{ticket.Subject}'.");
             }
@@ -771,6 +788,34 @@ namespace CRM.Api.Controllers
                         request.Message
                     );
 
+                if (role == "technician" && ticket.AgentId.HasValue)
+                {
+                    var agent = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.AgentId.Value);
+                    if (agent?.Email != null)
+                        _ = _emailService.SendNewMessageAsync(
+                            agent.Email,
+                            agent.Name ?? "Support Agent",
+                            ticket.Subject ?? "Your Ticket",
+                            ticket.Id,
+                            sender?.Name ?? "Technician",
+                            request.Message
+                        );
+                }
+
+                if (role == "cs_agent" && ticket.TechnicianId.HasValue)
+                {
+                    var technician = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.TechnicianId.Value);
+                    if (technician?.Email != null)
+                        _ = _emailService.SendNewMessageAsync(
+                            technician.Email,
+                            technician.Name ?? "Technician",
+                            ticket.Subject ?? "Your Ticket",
+                            ticket.Id,
+                            sender?.Name ?? "Support Agent",
+                            request.Message
+                        );
+                }
+
                 // customer web notification
                 await _notificationService.CreateAsync(ticket.CustomerId, $"New message from {senderRole} on your ticket #{ticket.Id} '{ticket.Subject}'.");
 
@@ -784,6 +829,34 @@ namespace CRM.Api.Controllers
             }
             else
             {
+                if (ticket.AgentId.HasValue)
+                {
+                    var agent = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.AgentId.Value);
+                    if (agent?.Email != null)
+                        _ = _emailService.SendNewMessageAsync(
+                            agent.Email,
+                            agent.Name ?? "Support Agent",
+                            ticket.Subject ?? "Your Ticket",
+                            ticket.Id,
+                            ticket.Customer?.Name ?? "Customer",
+                            request.Message
+                        );
+                }
+
+                if (ticket.TechnicianId.HasValue)
+                {
+                    var technician = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.TechnicianId.Value);
+                    if (technician?.Email != null)
+                        _ = _emailService.SendNewMessageAsync(
+                            technician.Email,
+                            technician.Name ?? "Technician",
+                            ticket.Subject ?? "Your Ticket",
+                            ticket.Id,
+                            ticket.Customer?.Name ?? "Customer",
+                            request.Message
+                        );
+                }
+
                 // agent/technician gets notification when customer comments
                 if (ticket.AgentId.HasValue)
                     await _notificationService.CreateAsync(ticket.AgentId.Value, $"New message from customer on ticket #{ticket.Id} '{ticket.Subject}'.");
