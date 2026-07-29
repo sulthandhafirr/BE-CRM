@@ -858,15 +858,18 @@ namespace CRM.Api.Controllers
             var source = await _db.Tickets.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id);
             if (source == null) return NotFound("Ticket not found");
 
-            var sourceText = source.Subject ?? "";   // ← diubah, sebelumnya gabung Subject+Description
+            var sourceText = source.Description ?? "";
 
             var candidateTickets = await _db.Tickets
-                .Where(t => t.Id != id && t.Customer!.CompanyId == companyId && t.Status != "Solved")
-                .Select(t => new { t.Id, t.Subject })   // ← Description tidak perlu di-select lagi
+                .Where(t => t.Id != id
+                        && t.Customer!.CompanyId == companyId
+                        && t.CustomerId == source.CustomerId   // ← hanya sesama customer yang sama
+                        && t.Status != "Solved")
+                .Select(t => new { t.Id, t.Description })
                 .ToListAsync();
 
             var candidates = candidateTickets
-                .Select(t => new DuplicateCandidate(t.Id, t.Subject ?? ""))   // ← diubah
+                .Select(t => new DuplicateCandidate(t.Id, t.Description ?? ""))
                 .ToList();
 
             var result = await _duplicateDetectionService.CheckDuplicatesAsync(sourceText, candidates, threshold);
@@ -875,18 +878,21 @@ namespace CRM.Api.Controllers
             var tickets = await _db.Tickets
                 .Where(t => scoreMap.Keys.Contains(t.Id))
                 .Include(t => t.Priority)
+                .Include(t => t.Customer)   // ← tambahan
                 .Select(t => new
                 {
                     id = t.Id,
                     subject = t.Subject,
+                    description = t.Description,
                     status = t.Status,
                     priority = t.Priority != null ? t.Priority.PriorityName : null,
                     createdAt = t.CreatedAt,
+                    customerName = t.Customer != null ? t.Customer.Name : null,   // ← tambahan
                 })
                 .ToListAsync();
 
             var ranked = tickets
-                .Select(t => new { t.id, t.subject, t.status, t.priority, t.createdAt, similarityScore = scoreMap[t.id] })
+                .Select(t => new { t.id, t.subject, t.description, t.status, t.priority, t.createdAt, t.customerName, similarityScore = scoreMap[t.id] })
                 .OrderByDescending(t => t.similarityScore)
                 .ToList();
 
@@ -895,23 +901,36 @@ namespace CRM.Api.Controllers
 
         // GET /api/tickets/duplicate-counts — badge count semua tiket sekaligus (1 batch call, bukan N call)
         [HttpGet("duplicate-counts")]
-        public async Task<IActionResult> GetDuplicateCounts(double threshold = 0.80)
+        public async Task<IActionResult> GetDuplicateCounts(double threshold = 0.75)
         {
             var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "cs_agent" && role != "admin") return Forbid();
 
             var openTickets = await _db.Tickets
                 .Where(t => t.Customer!.CompanyId == companyId && t.Status != "Solved")
-                .Select(t => new { t.Id, t.Subject })
+                .Select(t => new { t.Id, t.Description, t.CustomerId })
                 .ToListAsync();
 
-            var candidates = openTickets
-                .Select(t => new DuplicateCandidate(t.Id, t.Subject ?? ""))
-                .ToList();
+            var result = new Dictionary<long, int>();
 
-            var counts = await _duplicateDetectionService.GetDuplicateCountsAsync(candidates, threshold);
+            // ── Kelompokkan per customer, hitung duplikat HANYA dalam kelompok yang sama ──
+            var groupedByCustomer = openTickets.GroupBy(t => t.CustomerId);
 
-            return Ok(counts);   // { "12607290001": 1, "12607290002": 1, ... }
+            foreach (var group in groupedByCustomer)
+            {
+                if (group.Count() < 2) continue;   // 1 tiket saja pasti tidak ada duplikat
+
+                var candidates = group
+                    .Select(t => new DuplicateCandidate(t.Id, t.Description ?? ""))
+                    .ToList();
+
+                var groupCounts = await _duplicateDetectionService.GetDuplicateCountsAsync(candidates, threshold);
+
+                foreach (var kvp in groupCounts)
+                    result[kvp.Key] = kvp.Value;
+            }
+
+            return Ok(result);
         }
 
         // ── Request models ────────────────────────────────────────────────────
