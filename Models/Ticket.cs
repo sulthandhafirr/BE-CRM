@@ -28,11 +28,11 @@ namespace CRM.Api.Models
         [ForeignKey("PriorityId")]
         public PriorityList? Priority { get; set; }
 
-        [Column("sentiment")]
-        public string? Sentiment { get; set; }
+        // [Column("sentiment")]
+        // public string? Sentiment { get; set; }
 
-        [Column("sentiment_confidence")]
-        public double? SentimentConfidence { get; set; }
+        // [Column("sentiment_confidence")]
+        // public double? SentimentConfidence { get; set; }
 
         [Column("intent_id")]
         public long? IntentId { get; set; }

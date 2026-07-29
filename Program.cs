@@ -96,7 +96,7 @@ builder.Services.AddScoped<EmailService>();
 
 builder.Services.AddScoped<NotificationService>();
 
-builder.Services.AddScoped<SentimentAnalysisService>();
+// builder.Services.AddScoped<SentimentAnalysisService>();
 
 builder.Services.AddScoped<IntentAnalysisService>();
 

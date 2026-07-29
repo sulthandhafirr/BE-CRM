@@ -19,7 +19,7 @@ namespace CRM.Api.Controllers
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly EmailService _emailService;
         private readonly NotificationService _notificationService;
-        private readonly SentimentAnalysisService _sentimentAnalysisService;
+        // private readonly SentimentAnalysisService _sentimentAnalysisService;
         private readonly IntentAnalysisService _intentAnalysisService;
         private readonly UrgencyAnalysisService _urgencyAnalysisService;
         private readonly PriorityEngineService _priorityEngineService;
@@ -30,7 +30,7 @@ namespace CRM.Api.Controllers
             RoleService roleService,
             EmailService emailService,
             NotificationService notificationService,
-            SentimentAnalysisService sentimentAnalysisService,
+            // SentimentAnalysisService sentimentAnalysisService,
             IntentAnalysisService intentAnalysisService,
             UrgencyAnalysisService urgencyAnalysisService,
             PriorityEngineService priorityEngineService,
@@ -44,7 +44,7 @@ namespace CRM.Api.Controllers
             _httpClientFactory = httpClientFactory;
             _emailService = emailService;
             _notificationService = notificationService;
-            _sentimentAnalysisService = sentimentAnalysisService;
+            // _sentimentAnalysisService = sentimentAnalysisService;
             _intentAnalysisService = intentAnalysisService;
             _urgencyAnalysisService = urgencyAnalysisService;
             _priorityEngineService = priorityEngineService;
