@@ -19,6 +19,9 @@ namespace CRM.Api.Models
         [Column("color")]
         public string Color { get; set; } = "#6b7280";
 
+        [Column("level")]
+        public int Level { get; set; }
+
         [ForeignKey("CompanyId")]
         public Company? Company { get; set; }
     }

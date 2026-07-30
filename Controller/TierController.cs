@@ -54,8 +54,8 @@ namespace CRM.Api.Controllers
 
             var tiers = await _db.Tiers
                 .Where(t => t.CompanyId == companyId)
-                .OrderBy(t => t.Id)
-                .Select(t => new { t.Id, t.TierName, t.Color })
+                .OrderByDescending(t => t.Level)
+                .Select(t => new { t.Id, t.TierName, t.Color, t.Level })
                 .ToListAsync();
 
             return Ok(tiers);
@@ -78,12 +78,18 @@ namespace CRM.Api.Controllers
             if (exists)
                 return Conflict(new { message = $"Tier '{name}' sudah ada di company Anda." });
 
-            var tier = new Tier { TierName = name, CompanyId = companyId, Color = color };
+            // tier baru otomatis jadi level paling tinggi
+            var maxLevel = await _db.Tiers
+                .Where(t => t.CompanyId == companyId)
+                .Select(t => (int?)t.Level)
+                .MaxAsync() ?? 0;
+
+            var tier = new Tier { TierName = name, CompanyId = companyId, Color = color, Level = maxLevel + 1 };
             _db.Tiers.Add(tier);
             await _db.SaveChangesAsync();
 
             return CreatedAtAction(nameof(GetCompanyTiers), new { id = tier.Id },
-                new { tier.Id, tier.TierName, tier.Color });
+                new { tier.Id, tier.TierName, tier.Color, tier.Level });
         }
 
         [HttpPut("{id:int}")]
@@ -110,7 +116,70 @@ namespace CRM.Api.Controllers
                 tier.Color = request.Color!;
 
             await _db.SaveChangesAsync();
-            return Ok(new { tier.Id, tier.TierName, tier.Color });
+            return Ok(new { tier.Id, tier.TierName, tier.Color, tier.Level });
+        }
+
+        [HttpPut("{id:int}/level")]
+        public async Task<IActionResult> UpdateTierLevel(int id, [FromBody] UpdateTierLevelRequest request)
+        {
+            var (companyId, isAdmin) = await GetCurrentUserContextAsync();
+            if (!isAdmin) return Forbid();
+
+            var companyTiers = await _db.Tiers
+                .Where(t => t.CompanyId == companyId)
+                .OrderBy(t => t.Level)
+                .ToListAsync();
+
+            var tier = companyTiers.FirstOrDefault(t => t.Id == id);
+            if (tier is null)
+                return NotFound(new { message = "Tier tidak ditemukan pada company Anda." });
+
+            var maxLevel = companyTiers.Count;
+            var newLevel = Math.Clamp(request.NewLevel, 1, maxLevel);
+            var oldLevel = tier.Level;
+
+            if (newLevel != oldLevel)
+            {
+                // NpgsqlRetryingExecutionStrategy tidak mengizinkan BeginTransactionAsync manual —
+                // seluruh operasi (termasuk transaction-nya) harus dibungkus lewat execution strategy
+                // supaya retry-on-failure bisa mengulang seluruh unit kerja dengan aman.
+                var strategy = _db.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
+                {
+                    using var transaction = await _db.Database.BeginTransactionAsync();
+
+                    // fase 1: parkir tier yang dipindah ke level sementara di luar
+                    // rentang valid, biar slotnya kosong dulu — menghindari
+                    // bentrok unique constraint (company_id, level) saat geser tier lain
+                    tier.Level = -1;
+                    await _db.SaveChangesAsync();
+
+                    if (newLevel > oldLevel)
+                    {
+                        foreach (var t in companyTiers.Where(t => t.Id != id && t.Level > oldLevel && t.Level <= newLevel))
+                            t.Level -= 1;
+                    }
+                    else
+                    {
+                        foreach (var t in companyTiers.Where(t => t.Id != id && t.Level >= newLevel && t.Level < oldLevel))
+                            t.Level += 1;
+                    }
+                    await _db.SaveChangesAsync();
+
+                    // fase 2: taruh tier yang dipindah ke level final
+                    tier.Level = newLevel;
+                    await _db.SaveChangesAsync();
+
+                    await transaction.CommitAsync();
+                });
+            }
+
+            var result = companyTiers
+                .OrderByDescending(t => t.Level)
+                .Select(t => new { t.Id, t.TierName, t.Color, t.Level });
+
+            return Ok(result);
         }
 
         [HttpDelete("{id:int}")]
@@ -220,4 +289,6 @@ namespace CRM.Api.Controllers
         public string? TierName { get; set; }
         public string? Color { get; set; }
     }
+
+    public class UpdateTierLevelRequest { public int NewLevel { get; set; } }
 }
