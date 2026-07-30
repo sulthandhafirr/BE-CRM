@@ -196,7 +196,7 @@ namespace CRM.Api.Services
             {
                 new() { Priority = "Critical", FirstResponseHours = 1, ResolutionHours = 4 },
                 new() { Priority = "High", FirstResponseHours = 2, ResolutionHours = 8 },
-                new() { Priority = "Medium", FirstResponseHours = 8, ResolutionHours = 24 },
+                new() { Priority = "Normal", FirstResponseHours = 8, ResolutionHours = 24 },
                 new() { Priority = "Low", FirstResponseHours = 24, ResolutionHours = 72 },
             };
         }
