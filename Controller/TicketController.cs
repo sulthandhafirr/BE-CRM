@@ -552,8 +552,9 @@ namespace CRM.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateTicket([FromBody] CreateTicketRequest request)
         {
-            var role = await GetCurrentUserRole();
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "customer") return Forbid();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
             var ticketText = string.Join("\n\n", new[] { request.Subject, request.Description }
@@ -570,6 +571,7 @@ namespace CRM.Api.Controllers
             var priorityResult = await _priorityEngineService.ResolvePriorityAsync(
                 description: request.Description,
                 customerId: userId,
+                companyId: companyId.Value,
                 intent: intentResult.Intent,
                 intentConfidence: intentResult.Confidence,
                 urgency: urgencyResult.Urgency,
@@ -582,7 +584,10 @@ namespace CRM.Api.Controllers
                     .AsNoTracking()
                     .FirstOrDefaultAsync(p => p.PriorityName == "Normal");
 
-            var slaDeadline = DateTime.UtcNow.AddDays(priorityResult.SlaDays);
+            var slaDeadline = priorityResult.SlaResolutionHours.HasValue
+                ? DateTime.UtcNow.AddHours(priorityResult.SlaResolutionHours.Value)
+                : (DateTime?)null;
+                
             var priorityId = priority?.Id ?? 2;
 
             var intentEntity = await _db.Intents

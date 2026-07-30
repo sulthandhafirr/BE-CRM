@@ -1,6 +1,7 @@
 using CRM.Api.Data;
 using CRM.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace CRM.Api.Services
 {
@@ -36,6 +37,7 @@ namespace CRM.Api.Services
         public async Task<PriorityResult> ResolvePriorityAsync(
             string? description,
             Guid customerId,
+            int companyId,
             string intent,
             double intentConfidence,
             string urgency,
@@ -66,11 +68,11 @@ namespace CRM.Api.Services
             var finalLevel = Math.Clamp(levelAfterSla, 0, 3);
 
             var priorityName = LevelToPriorityName(finalLevel);
-            var slaDays = GetSlaDays(priorityName);
+            var resolutionHours = await GetResolutionHoursAsync(companyId, priorityName, cancellationToken);
 
             return new PriorityResult(
                 PriorityName: priorityName,
-                SlaDays: slaDays,
+                SlaResolutionHours: resolutionHours,
                 BaseLevel: baseLevel,
                 IntentWeight: baseLevel,
                 UrgencyWeight: urgencyLevel,
@@ -189,18 +191,59 @@ namespace CRM.Api.Services
             _ => "Normal"
         };
 
-        public static int GetSlaDays(string priorityName) => priorityName switch
+        // public static int GetSlaDays(string priorityName) => priorityName switch
+        // {
+        //     "Critical" => 1,
+        //     "High" => 2,
+        //     "Normal" => 3,
+        //     "Low" => 4,
+        //     _ => 3
+        // };
+
+        private static readonly Dictionary<string, int> FallbackResolutionHours = new()
         {
-            "Critical" => 1,
-            "High" => 2,
-            "Normal" => 3,
-            "Low" => 4,
-            _ => 3
+            ["Critical"] = 24,
+            ["High"] = 48,
+            ["Normal"] = 72,
+            ["Low"] = 96,
         };
+
+        private async Task<int?> GetResolutionHoursAsync(int companyId, string priorityName, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var company = await _db.Companies
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(c => c.Id == companyId, cancellationToken);
+
+                if (company?.SlaConfig is not null)
+                {
+                    var config = JsonSerializer.Deserialize<SlaRulesConfigDto>(
+                        company.SlaConfig,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                    if (config is not null && !config.EnableSlaMonitoring)
+                        return null;
+
+                    var rule = config?.Rules?.FirstOrDefault(r =>
+                        string.Equals(r.Priority, priorityName, StringComparison.OrdinalIgnoreCase));
+
+                    if (rule is not null)
+                        return rule.ResolutionHours;
+                }
+            }
+            catch
+            {
+                // fall through to hardcoded fallback below
+            }
+
+            return FallbackResolutionHours.GetValueOrDefault(priorityName, 72);
+        }
 
         public readonly record struct PriorityResult(
             string PriorityName,
-            int SlaDays,
+            int? SlaResolutionHours,
+            // int SlaDays,
             int BaseLevel,
             int IntentWeight,
             int UrgencyWeight,
