@@ -11,10 +11,13 @@ namespace CRM.Api.Controllers
     public class AgentRankController : BaseController
     {
         private readonly AppDbContext _db;
+        private readonly PriorityEngineService _priorityEngineService;
 
-        public AgentRankController(AppDbContext db, RoleService roleService) : base(roleService)
+
+        public AgentRankController(AppDbContext db, RoleService roleService, PriorityEngineService priorityEngineService) : base(roleService)
         {
             _db = db;
+            _priorityEngineService = priorityEngineService;
         }
 
         // GET /api/rank/agents-rank
@@ -23,10 +26,11 @@ namespace CRM.Api.Controllers
         {
             var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "admin" && role != "cs_agent") return Forbid();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-            var effectiveStart = startDate.HasValue 
+            var effectiveStart = startDate.HasValue
                 ? DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
 
@@ -34,13 +38,18 @@ namespace CRM.Api.Controllers
                 ? DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
 
+            if (!await _priorityEngineService.IsSlaEnabledAsync(companyId.Value))
+            {
+                return Ok(new { slaDisabled = true, message = "SLA monitoring is disabled for this company." });
+            }
+
             // only consider tickets that have an agent assigned
             var tickets = await _db.Tickets
                 .AsNoTracking()
-                .Where(t => t.AgentId != null 
+                .Where(t => t.AgentId != null
                     && t.Customer!.CompanyId == companyId
                     && t.ResolvedAt != null
-                    && (!effectiveStart.HasValue || t.ResolvedAt >= effectiveStart) 
+                    && (!effectiveStart.HasValue || t.ResolvedAt >= effectiveStart)
                     && (!effectiveEnd.HasValue || t.ResolvedAt <= effectiveEnd))
                 .Select(t => new
                 {
@@ -53,7 +62,9 @@ namespace CRM.Api.Controllers
                     t.ResponseTimeSec,
                     t.ResolutionTimeSec,
                     t.SlaBreached,
-                    t.Status
+                    t.Status,
+                    t.SlaDeadline,
+                    t.CreatedAt,
                 })
                 .ToListAsync();
 
@@ -85,21 +96,34 @@ namespace CRM.Api.Controllers
                     // }
 
                     // Resolution time penalty relative to SLA (max -30pts)
-                    if (t.ResolutionTimeSec.HasValue)
+                    // if (t.ResolutionTimeSec.HasValue)
+                    // {
+                    //     double slaHours = t.PriorityName switch
+                    //     {
+                    //         "Critical" => 24,
+                    //         "High" => 48,
+                    //         "Normal" => 72,
+                    //         "Low" => 96,
+                    //         _ => 72
+                    //     };
+                    //     double resolutionHours = t.ResolutionTimeSec.Value / 3600.0;
+                    //     double resolutionRatio = resolutionHours / slaHours;
+                    //     double resolutionPenalty = Math.Min(resolutionRatio * 15, 30);
+                    //     score -= resolutionPenalty;
+                    //     totalResolutionPenalty += resolutionPenalty;
+                    // }
+
+                    if (t.ResolutionTimeSec.HasValue && t.SlaDeadline.HasValue)
                     {
-                        double slaHours = t.PriorityName switch
+                        double slaHours = (t.SlaDeadline.Value - t.CreatedAt).TotalHours;
+                        if (slaHours > 0)
                         {
-                            "Critical" => 24,
-                            "High" => 48,
-                            "Normal" => 72,
-                            "Low" => 96,
-                            _ => 72
-                        };
-                        double resolutionHours = t.ResolutionTimeSec.Value / 3600.0;
-                        double resolutionRatio = resolutionHours / slaHours;
-                        double resolutionPenalty = Math.Min(resolutionRatio * 15, 30);
-                        score -= resolutionPenalty;
-                        totalResolutionPenalty += resolutionPenalty;
+                            double resolutionHours = t.ResolutionTimeSec.Value / 3600.0;
+                            double resolutionRatio = resolutionHours / slaHours;
+                            double resolutionPenalty = Math.Min(resolutionRatio * 15, 30);
+                            score -= resolutionPenalty;
+                            totalResolutionPenalty += resolutionPenalty;
+                        }
                     }
                     // else if (t.SlaBreached)
                     // {
@@ -142,8 +166,8 @@ namespace CRM.Api.Controllers
                     { "slowResolution", totalResolutionPenalty },
                     { "frequentBreaches", totalBreachPenalty },
                 };
-                var topReasonKey = reasons.Values.Max() > 0 
-                    ? reasons.OrderByDescending(r => r.Value).First().Key 
+                var topReasonKey = reasons.Values.Max() > 0
+                    ? reasons.OrderByDescending(r => r.Value).First().Key
                     : "consistentPerformance";
 
                 return new
@@ -163,8 +187,8 @@ namespace CRM.Api.Controllers
                         .DefaultIfEmpty(null)
                         .Average(),
                     avgScore = Math.Round(scores.Average(), 2),
-                    slaBreachRate = agentTickets.Count > 0 
-                        ? Math.Round((double)agentTickets.Count(t => t.SlaBreached) / agentTickets.Count * 100, 1) 
+                    slaBreachRate = agentTickets.Count > 0
+                        ? Math.Round((double)agentTickets.Count(t => t.SlaBreached) / agentTickets.Count * 100, 1)
                         : 0,
                     topReasonKey,
                 };

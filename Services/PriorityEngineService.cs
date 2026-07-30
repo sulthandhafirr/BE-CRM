@@ -207,9 +207,34 @@ namespace CRM.Api.Services
             ["Normal"] = 72,
             ["Low"] = 96,
         };
+        public async Task<bool> IsSlaEnabledAsync(int companyId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var company = await _db.Companies
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(c => c.Id == companyId, cancellationToken);
+
+                if (company?.SlaConfig is null)
+                    return true; // no config = SLA enabled by default
+
+                var config = JsonSerializer.Deserialize<SlaRulesConfigDto>(
+                    company.SlaConfig,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                return config?.EnableSlaMonitoring ?? true;
+            }
+            catch
+            {
+                return true; // fall back to enabled
+            }
+        }
 
         private async Task<int?> GetResolutionHoursAsync(int companyId, string priorityName, CancellationToken cancellationToken)
         {
+            if (!await IsSlaEnabledAsync(companyId, cancellationToken))
+                return null;
+
             try
             {
                 var company = await _db.Companies
@@ -234,7 +259,7 @@ namespace CRM.Api.Services
             }
             catch
             {
-                // fall through to hardcoded fallback below
+                // fallback below
             }
 
             return FallbackResolutionHours.GetValueOrDefault(priorityName, 72);
