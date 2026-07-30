@@ -44,6 +44,29 @@ namespace CRM.Api.Prompts
                         required = new[] { "scope" }
                     }
                 }
+            },
+            new
+            {
+                type = "function",
+                function = new
+                {
+                    name = "get_users",
+                    description = "Get the list of users in the company, with their name and role. Optionally filter by role (cs_agent, technician, customer, admin, ultrauser). Use this for questions about who works here, how many of a given role there are, or a breakdown of users by role.",
+                    parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            role = new
+                            {
+                                type = "string",
+                                @enum = new[] { "cs_agent", "technician", "customer", "admin", "ultrauser" },
+                                description = "The role to filter by. Omit to get all users regardless of role."
+                            }
+                        },
+                        required = new string[] { }
+                    }
+                }
             }
         };
     }

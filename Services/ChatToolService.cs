@@ -13,6 +13,13 @@ namespace CRM.Api.Services
             _db = db;
         }
 
+        private static string? TryGetOptionalString(string? json, string propertyName)
+        {
+            if (string.IsNullOrEmpty(json)) return null;
+            var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty(propertyName, out var prop) ? prop.GetString() : null;
+        }
+
         public async Task<string?> GetUserContextAsync(Guid userId, string? role)
         {
             var profile = await _db.Profiles
@@ -108,6 +115,19 @@ namespace CRM.Api.Services
 
             return JsonSerializer.Serialize(tickets);
         }
+        public async Task<string> GetUsersAsync(string? role, int? companyId)
+        {
+            var query = _db.Profiles.AsNoTracking().Where(p => p.CompanyId == companyId);
+
+            if (!string.IsNullOrEmpty(role))
+                query = query.Where(p => p.Role!.RoleName == role);
+
+            var users = await query
+                .Select(p => new { p.Name, p.Position, RoleName = p.Role!.RoleName })
+                .ToListAsync();
+
+            return JsonSerializer.Serialize(users);
+        }
         public async Task<string> ExecuteToolAsync(string funcName, string? funcArgsJson, Guid userId, string? role, int? companyId)
         {
             return funcName switch
@@ -116,6 +136,7 @@ namespace CRM.Api.Services
                     JsonDocument.Parse(funcArgsJson!).RootElement.GetProperty("ticket_id").GetString() ?? "", companyId),
                 "get_tickets" => await GetTicketsAsync(
                     JsonDocument.Parse(funcArgsJson!).RootElement.GetProperty("scope").GetString() ?? "mine", userId, role, companyId),
+                "get_users" => await GetUsersAsync(TryGetOptionalString(funcArgsJson, "role"), companyId),
                 _ => JsonSerializer.Serialize(new { error = "Unknown tool" })
             };
         }
