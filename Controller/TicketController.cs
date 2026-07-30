@@ -201,6 +201,7 @@ namespace CRM.Api.Controllers
                     status = t.Status,
                     priority = t.Priority != null ? t.Priority.PriorityName : null,
                     customer = t.Customer != null ? t.Customer.Name : null,
+                    customerId = t.CustomerId,
                     solver = t.Agent != null ? t.Agent.Name : null,
                     technician = t.Technician != null ? t.Technician.Name : null,
                     handler = t.Agent != null ? t.Agent.Name : "Not assigned yet",
@@ -952,6 +953,7 @@ namespace CRM.Api.Controllers
                 .Where(t => scoreMap.Keys.Contains(t.Id))
                 .Include(t => t.Priority)
                 .Include(t => t.Customer)   // ← tambahan
+                .Include(t => t.Intent)
                 .Select(t => new
                 {
                     id = t.Id,
@@ -961,11 +963,12 @@ namespace CRM.Api.Controllers
                     priority = t.Priority != null ? t.Priority.PriorityName : null,
                     createdAt = t.CreatedAt,
                     customerName = t.Customer != null ? t.Customer.Name : null,   // ← tambahan
+                    intent = t.Intent != null ? t.Intent.IntentName : null,
                 })
                 .ToListAsync();
 
             var ranked = tickets
-                .Select(t => new { t.id, t.subject, t.description, t.status, t.priority, t.createdAt, t.customerName, similarityScore = scoreMap[t.id] })
+                .Select(t => new { t.id, t.subject, t.description, t.status, t.priority, t.createdAt, t.customerName, t.intent, similarityScore = scoreMap[t.id] })
                 .OrderByDescending(t => t.similarityScore)
                 .ToList();
 
