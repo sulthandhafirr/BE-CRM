@@ -29,11 +29,11 @@ namespace CRM.Api.Controllers
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-            var effectiveStartDate = startDate.HasValue 
-                ? DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc) 
+            var effectiveStartDate = startDate.HasValue
+                ? DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
-            var effectiveEndDate = endDate.HasValue 
-                ? DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc) 
+            var effectiveEndDate = endDate.HasValue
+                ? DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
 
             var roleIds = await _db.Roles
@@ -128,7 +128,7 @@ namespace CRM.Api.Controllers
                 .Where(t => t.AgentId == userId && t.Status == "Solved" && t.ResolutionTimeSec != null
                     && (!effectiveStartDate.HasValue || t.ResolvedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.ResolvedAt <= effectiveEndDate))
                 .AverageAsync(t => (double?)t.ResolutionTimeSec);
-            
+
             var priorityCounts = await _db.Tickets
                 .AsNoTracking()
                 .Where(t => t.Priority != null && t.Customer!.CompanyId == companyId
@@ -148,6 +148,39 @@ namespace CRM.Api.Controllers
             var ticketByIntent = intentCounts
                 .GroupBy(x => x.Intent ?? "Unclassified")
                 .ToDictionary(g => g.Key, g => g.Sum(x => x.Count));
+
+            var slaBreachedCount = await _db.Tickets
+                .AsNoTracking()
+                .CountAsync(t => t.Customer!.CompanyId == companyId
+                    && t.SlaBreached
+                    && t.Status != "Solved");
+
+            var notifyMinutes = 30; // fallback
+            var company = await _db.Companies.AsNoTracking().FirstOrDefaultAsync(c => c.Id == companyId);
+            if (company?.SlaConfig is not null)
+            {
+                try
+                {
+                    var config = System.Text.Json.JsonSerializer.Deserialize<SlaRulesConfigDto>(
+                        company.SlaConfig,
+                        new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (config is not null && config.EnableSlaMonitoring)
+                        notifyMinutes = config.NotifyBeforeBreachedMinutes;
+                }
+                catch { /* keep fallback */ }
+            }
+
+            var candidateTickets = await _db.Tickets
+                .AsNoTracking()
+                .Where(t => t.Customer!.CompanyId == companyId
+                    && t.SlaDeadline != null
+                    && !t.SlaBreached
+                    && t.SlaDeadline > DateTime.UtcNow)
+                .Select(t => t.SlaDeadline!.Value)
+                .ToListAsync();
+
+            var slaAlmostBreachedCount = candidateTickets
+                .Count(deadline => (deadline - DateTime.UtcNow).TotalMinutes <= notifyMinutes);
 
             var csAgentRoleId = roleIds.GetValueOrDefault("cs_agent", 0);
             var technicianRoleId = roleIds.GetValueOrDefault("technician", 0);
@@ -188,7 +221,9 @@ namespace CRM.Api.Controllers
                 },
                 TicketByIntent = ticketByIntent,
                 MyAvgResponseTime = myAvgResponseTimeSec,
-                MyAvgResolutionTime = myAvgResolutionTimeSec
+                MyAvgResolutionTime = myAvgResolutionTimeSec,
+                SlaBreachedCount = slaBreachedCount,      
+                SlaAlmostBreachedCount = slaAlmostBreachedCount
             });
         }
         // GET /api/dashboard/ticket-trend
@@ -199,7 +234,7 @@ namespace CRM.Api.Controllers
             if (role != "admin" && role != "cs_agent") return Forbid();
 
             // Default to "this month" if no filter passed
-            var effectiveStart = startDate.HasValue 
+            var effectiveStart = startDate.HasValue
                 ? DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc)
                 : DateTime.SpecifyKind(new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1), DateTimeKind.Utc);
 
@@ -253,11 +288,11 @@ namespace CRM.Api.Controllers
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-            var effectiveStart = startDate.HasValue 
-                ? DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc) 
+            var effectiveStart = startDate.HasValue
+                ? DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
-            var effectiveEnd = endDate.HasValue 
-                ? DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc) 
+            var effectiveEnd = endDate.HasValue
+                ? DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
 
             var query = _db.Tickets.AsNoTracking().AsQueryable();
