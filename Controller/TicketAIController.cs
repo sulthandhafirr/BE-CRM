@@ -62,7 +62,8 @@ namespace CRM.Api.Controllers
                 comments.Select(c =>
                     $"[{c.CreatedAt?.ToString("dd MMMM yyyy, HH:mm")}] {c.Sender?.Name ?? "User"}: {c.Message}"));
 
-            var prompt = string.Format(TicketPrompts.Summary, ticket.Subject ?? "", ticket.Status ?? "", historyText, ticket.Description ?? "");
+            var role = await GetCurrentUserRole();
+            var prompt = string.Format(TicketPrompts.Summary, ticket.Subject ?? "", ticket.Status ?? "", historyText, ticket.Description ?? "", role ?? "");
 
             var result = await CallDeepSeek(prompt);
             return Ok(new { success = result.Success, message = result.Message });
@@ -92,7 +93,8 @@ namespace CRM.Api.Controllers
                     $"[{c.CreatedAt?.ToString("dd MMMM yyyy, HH:mm")}] {c.Sender?.Name ?? "User"}: {c.Message}"));
 
             var companyName = ticket.Customer?.Company?.CompanyName ?? "";
-            var prompt = string.Format(TicketPrompts.Draft, ticket.Id, ticket.Subject ?? "", historyText, ticket.Description ?? "", companyName);
+            var role = await GetCurrentUserRole();
+            var prompt = string.Format(TicketPrompts.Draft, ticket.Id, ticket.Subject ?? "", historyText, ticket.Description ?? "", companyName, role ?? "");
 
             var result = await CallDeepSeek(prompt);
             return Ok(new { success = result.Success, message = result.Message });
