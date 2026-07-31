@@ -58,36 +58,11 @@ namespace CRM.Api.Controllers
                 return Ok(new { success = true, message = msg });
             }
 
-            var chatLang = DetectLanguage(string.Join(" ", comments.Select(c => c.Message)));
             var historyText = string.Join("\n",
                 comments.Select(c =>
                     $"[{c.CreatedAt?.ToString("dd MMMM yyyy, HH:mm")}] {c.Sender?.Name ?? "User"}: {c.Message}"));
 
-            var prompt = chatLang == "Indonesian"
-                ? $"""
-                   RINGKASKAN PERCAKAPAN INI DALAM BAHASA INDONESIA. 2-3 kalimat saja.
-                   Sertakan masalah utama dan update terbaru.
-
-                   Ticket: {ticket.Subject ?? ""}
-                   Status: {ticket.Status ?? ""}
-
-                   Percakapan:
-                   {historyText}
-
-                   Ringkasan:
-                   """
-                : $"""
-                   Summarize the following customer support conversation concisely in 2-3 sentences.
-                   Include the main issue discussed and any key updates.
-
-                   Ticket: {ticket.Subject ?? ""}
-                   Status: {ticket.Status ?? ""}
-
-                   Conversation:
-                   {historyText}
-
-                   Summary:
-                   """;
+            var prompt = string.Format(TicketPrompts.Summary, ticket.Subject ?? "", ticket.Status ?? "", historyText, ticket.Description ?? "");
 
             var result = await CallDeepSeek(prompt);
             return Ok(new { success = result.Success, message = result.Message });
@@ -110,66 +85,17 @@ namespace CRM.Api.Controllers
 
             var comments = ticket.Comments?.ToList() ?? new List<TicketComment>();
 
-            var chatLang = DetectLanguage(string.Join(" ", comments.Select(c => c.Message)));
             var historyText = string.Join("\n",
                 comments.Select(c =>
                     $"[{c.CreatedAt?.ToString("dd MMMM yyyy, HH:mm")}] {c.Sender?.Name ?? "User"}: {c.Message}"));
 
-            var prompt = chatLang == "Indonesian"
-                ? $"""
-                   BERTINDAKLAH SEBAGAI AGEN CUSTOMER SUPPORT yang profesional dan empatik untuk CRM ini.
-                   Berdasarkan riwayat tiket berikut, buatlah draf balasan untuk customer.
-                   Gunakan bahasa Indonesia yang sopan dan profesional. Akui keluhan mereka jika ada,
-                   dan sampaikan langkah selanjutnya.
-
-                   ID Tiket: {ticket.Id}
-                   Judul Tiket: {ticket.Subject ?? ""}
-
-                   Riwayat Percakapan:
-                   {historyText}
-
-                   Draf Balasan:
-                   """
-                : $"""
-                   Act as an expert, empathetic, and highly professional customer support agent
-                   for Enterprise AI CRM. Based on the following support ticket history, generate
-                   a draft response to the customer. Keep it concise, professional, acknowledge
-                   their frustration if present, and outline the next steps. Do not include
-                   placeholders like [Your Name] or [Company Name] if possible, just write the
-                   core message.
-
-                   Ticket ID: {ticket.Id}
-                   Ticket Subject: {ticket.Subject ?? ""}
-
-                   Conversation History:
-                   {historyText}
-
-                   Draft Response:
-                   """;
+            var prompt = string.Format(TicketPrompts.Draft, ticket.Id, ticket.Subject ?? "", historyText, ticket.Description ?? "");
 
             var result = await CallDeepSeek(prompt);
             return Ok(new { success = result.Success, message = result.Message });
         }
 
         // ── Private helpers ──────────────────────────────────────────────────────
-
-        private static string DetectLanguage(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text)) return "English";
-
-            var indoWords = new[]
-            {
-                "saya", "anda", "kami", "kita", "tidak", "ada", "dapat",
-                "akan", "sudah", "tolong", "terima", "kasih", "bisa",
-                "untuk", "yang", "dengan", "pada", "dari", "ini", "itu",
-                "dan", "di", "ke"
-            };
-
-            var matches = indoWords.Count(w =>
-                text.Contains(w, StringComparison.OrdinalIgnoreCase));
-
-            return matches >= 3 ? "Indonesian" : "English";
-        }
 
         private async Task<(bool Success, string Message)> CallDeepSeek(string prompt)
         {

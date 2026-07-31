@@ -64,6 +64,7 @@ namespace CRM.Api.Services
                 {
                     t.Id,
                     t.Subject,
+                    t.Description,
                     t.Status,
                     Priority = t.Priority!.PriorityName,
                     t.SlaDeadline,
