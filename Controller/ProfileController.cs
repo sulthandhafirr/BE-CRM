@@ -34,14 +34,18 @@ namespace CRM.Api.Controllers
             if (profile == null)
                 return NotFound(new { message = "Profile not found." });
 
-            if (string.IsNullOrWhiteSpace(request.Name))
+            if (string.IsNullOrWhiteSpace(request.Name) && request.AvatarUrl == null)
                 return BadRequest(new { message = "Name is required." });
 
-            profile.Name = request.Name.Trim();
+            if (!string.IsNullOrWhiteSpace(request.Name))
+                profile.Name = request.Name.Trim();
+
+            if (request.AvatarUrl != null)
+                profile.AvatarUrl = string.IsNullOrWhiteSpace(request.AvatarUrl) ? null : request.AvatarUrl;
 
             await _db.SaveChangesAsync();
 
-            return Ok(new { id = profile.Id, name = profile.Name });
+            return Ok(new { id = profile.Id, name = profile.Name, avatarUrl = profile.AvatarUrl });
         }
 
         // ── Request models ────────────────────────────────────────────────────
@@ -49,6 +53,7 @@ namespace CRM.Api.Controllers
         public class UpdateProfileRequest
         {
             public string? Name { get; set; }
+            public string? AvatarUrl { get; set; }
         }
     }
 }

@@ -87,6 +87,9 @@ namespace CRM.Api.Models
         [Column("Position")]
         public string? Position { get; set; }
 
+        [Column("avatar_url")]
+        public string? AvatarUrl { get; set; }
+
         [Column("company_id")]
         public int? CompanyId { get; set; }
 
