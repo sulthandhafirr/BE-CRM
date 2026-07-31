@@ -910,6 +910,7 @@ namespace CRM.Api.Controllers
 
             var comments = await _db.TicketComments
                 .Include(c => c.Sender)
+                    .ThenInclude(s => s!.Role)
                 .Where(c => c.TicketId == ticketId)
                 .OrderBy(c => c.CreatedAt)
                 .AsNoTracking()
@@ -919,6 +920,7 @@ namespace CRM.Api.Controllers
                     ticketId = c.TicketId,
                     senderId = c.SenderId,
                     senderName = c.Sender != null ? c.Sender.Name : null,
+                    senderRole = c.Sender != null && c.Sender.Role != null ? c.Sender.Role.RoleName : null,
                     message = c.Message,
                     createdAt = c.CreatedAt,
                 })
