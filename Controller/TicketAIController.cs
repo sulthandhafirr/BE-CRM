@@ -77,6 +77,8 @@ namespace CRM.Api.Controllers
             var ticket = await _db.Tickets
                 .Include(t => t.Comments.OrderBy(c => c.CreatedAt))
                     .ThenInclude(c => c.Sender)
+                .Include(t => t.Customer)
+                    .ThenInclude(c => c!.Company)
                 .AsNoTracking()
                 .FirstOrDefaultAsync(t => t.Id == ticketId);
 
@@ -89,7 +91,8 @@ namespace CRM.Api.Controllers
                 comments.Select(c =>
                     $"[{c.CreatedAt?.ToString("dd MMMM yyyy, HH:mm")}] {c.Sender?.Name ?? "User"}: {c.Message}"));
 
-            var prompt = string.Format(TicketPrompts.Draft, ticket.Id, ticket.Subject ?? "", historyText, ticket.Description ?? "");
+            var companyName = ticket.Customer?.Company?.CompanyName ?? "";
+            var prompt = string.Format(TicketPrompts.Draft, ticket.Id, ticket.Subject ?? "", historyText, ticket.Description ?? "", companyName);
 
             var result = await CallDeepSeek(prompt);
             return Ok(new { success = result.Success, message = result.Message });
