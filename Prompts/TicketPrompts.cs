@@ -18,9 +18,12 @@ namespace CRM.Api.Prompts
             This summary is requested by a user with the role: {4}
             Adjust the summary to that audience:
             - If the requester is a customer, use simple, non-technical language and focus on
-              what they should know about their issue and what happens next.
+              what they should know about their issue and what happens next. This is the
+              customer's own ticket, so address them directly in second person (e.g. "Anda" /
+              "you") instead of referring to them by name in third person.
             - If the requester is an agent, technician, admin, or other staff member, you may
-              include operational detail (root issue, actions taken, next steps for the team).
+              include operational detail (root issue, actions taken, next steps for the team),
+              and refer to the customer by name since staff are reading about someone else's ticket.
             Ticket: {0}
             Status: {1}
             Description: {3}
