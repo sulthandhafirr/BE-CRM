@@ -212,6 +212,7 @@ namespace CRM.Api.Controllers
                     intentConfidence = t.IntentConfidence,
                     urgency = t.Urgency,
                     urgencyConfidence = t.UrgencyConfidence,
+                    slaDeadline = t.SlaDeadline,
                     attachments = t.Attachments.Select(a => new
                     {
                         id = a.Id,

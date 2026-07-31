@@ -95,7 +95,6 @@ builder.Services.AddScoped<RoleService>();
 builder.Services.AddScoped<EmailService>();
 
 builder.Services.AddScoped<NotificationService>();
-
 // builder.Services.AddScoped<SentimentAnalysisService>();
 
 builder.Services.AddScoped<IntentAnalysisService>();
@@ -107,6 +106,8 @@ builder.Services.AddScoped<PriorityEngineService>();
 builder.Services.AddScoped<TicketRecommendationService>();
 
 builder.Services.AddHostedService<SlaCheckerService>();
+
+builder.Services.AddHostedService<SlaReminderService>();
 
 builder.Services.AddScoped<ChatToolService>();
 

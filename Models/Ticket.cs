@@ -90,6 +90,12 @@ namespace CRM.Api.Models
 
         [Column("resolution_time_sec")]
         public int? ResolutionTimeSec { get; set; }
+
+        [Column("sla_reminder_sent")]
+        public bool SlaReminderSent { get; set; }
+
+        [Column("sla_breached_notified")]
+        public bool SlaBreachedNotified { get; set; }
         // Navigation properties
         // public Profile? Customer { get; set; }
         // public Profile? Agent { get; set; }

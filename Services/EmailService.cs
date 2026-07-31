@@ -36,13 +36,13 @@ namespace CRM.Api.Services
                 await smtp.SendAsync(email);
                 await smtp.DisconnectAsync(true);
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Console.WriteLine($"[EmailService] Failed to send email to {toEmail}: {ex.Message}");
             }
         }
 
-        
+
 
         public Task SendTicketAssignedAsync(string toEmail, string toName, string ticketSubject, long ticketId)
             => SendAsync(
@@ -99,7 +99,7 @@ namespace CRM.Api.Services
                     <p>Please log in to view the ticket and take necessary actions.</p>
                     <p>Thank you for your support.</p>"
             );
-        
+
         public Task SendTechnicianResolvedAsync(string toEmail, string toName, string ticketSubject, long ticketId)
             => SendAsync(
                 toEmail, toName,
@@ -107,6 +107,24 @@ namespace CRM.Api.Services
                 $@"<p>Hi <b>{toName}</b>,</p>
                     <p>The ticket <b>'{ticketSubject}'</b> <i>(#{ticketId})</i> you were assigned to has been marked as resolved.</p>
                     <p>Thank you for your support.</p>"
+            );
+        public Task SendSlaBreachedAsync(string toEmail, string toName, string ticketSubject, long ticketId)
+            => SendAsync(
+                toEmail, toName,
+                "SLA Deadline Breached",
+                $@"<p>Hi <b>{toName}</b>,</p>
+                    <p>The ticket <b>'{ticketSubject}'</b> <i>(#{ticketId})</i> has breached its SLA deadline.</p>
+                    <p>Please review and take action as soon as possible.</p>
+                    <p>Thank you.</p>"
+            );
+        public Task SendSlaWarningAsync(string toEmail, string toName, string ticketSubject, long ticketId, int minutesRemaining)
+            => SendAsync(
+                toEmail, toName,
+                "SLA Deadline Approaching",
+                $@"<p>Hi <b>{toName}</b>,</p>
+                    <p>The ticket <b>'{ticketSubject}'</b> <i>(#{ticketId})</i> is approaching its SLA deadline, breaching in approximately <b>{minutesRemaining} minutes</b>.</p>
+                    <p>Please review and take action soon to avoid an SLA breach.</p>
+                    <p>Thank you.</p>"
             );
     }
 }
