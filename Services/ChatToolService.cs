@@ -128,6 +128,55 @@ namespace CRM.Api.Services
 
             return JsonSerializer.Serialize(users);
         }
+        public async Task<string> GetCustomerTierAsync(string? customerName, Guid userId, string? role, int? companyId)
+        {
+            var isStaff = role is "cs_agent" or "technician" or "admin" or "ultrauser";
+
+            if (isStaff)
+            {
+                if (string.IsNullOrWhiteSpace(customerName))
+                    return JsonSerializer.Serialize(new { error = "Please provide the customer's name" });
+
+                var matches = await _db.Profiles
+                    .AsNoTracking()
+                    .Where(p => p.CompanyId == companyId && p.Role!.RoleName == "customer" && p.Name!.ToLower().Contains(customerName.ToLower()))
+                    .Select(p => new
+                    {
+                        p.Name,
+                        TierName = p.ProfileTiers.Select(pt => pt.Tier!.TierName).FirstOrDefault()
+                    })
+                    .ToListAsync();
+
+                if (matches.Count == 0)
+                    return JsonSerializer.Serialize(new { error = "Customer not found" });
+
+                if (matches.Count > 1)
+                    return JsonSerializer.Serialize(new { error = "Multiple customers found with that name, please provide more detail" });
+
+                return JsonSerializer.Serialize(matches[0]);
+            }
+
+            var ownProfile = await _db.Profiles
+                .AsNoTracking()
+                .Where(p => p.Id == userId)
+                .Select(p => new
+                {
+                    p.Name,
+                    TierName = p.ProfileTiers.Select(pt => pt.Tier!.TierName).FirstOrDefault()
+                })
+                .FirstOrDefaultAsync();
+
+            if (ownProfile == null)
+                return JsonSerializer.Serialize(new { error = "Profile not found" });
+
+            var askingAboutSelf = string.IsNullOrWhiteSpace(customerName)
+                || string.Equals(customerName.Trim(), ownProfile.Name, StringComparison.OrdinalIgnoreCase);
+
+            if (!askingAboutSelf)
+                return JsonSerializer.Serialize(new { error = "Sorry, that's personal information I can't share. I can only tell you your own tier." });
+
+            return JsonSerializer.Serialize(ownProfile);
+        }
         public async Task<string> ExecuteToolAsync(string funcName, string? funcArgsJson, Guid userId, string? role, int? companyId)
         {
             return funcName switch
@@ -137,6 +186,9 @@ namespace CRM.Api.Services
                 "get_tickets" => await GetTicketsAsync(
                     JsonDocument.Parse(funcArgsJson!).RootElement.GetProperty("scope").GetString() ?? "mine", userId, role, companyId),
                 "get_users" => await GetUsersAsync(TryGetOptionalString(funcArgsJson, "role"), companyId),
+                "get_customer_tier" => await GetCustomerTierAsync(TryGetOptionalString(funcArgsJson, "customer_name"), userId, role, companyId),
+
+                // Unknown tool
                 _ => JsonSerializer.Serialize(new { error = "Unknown tool" })
             };
         }

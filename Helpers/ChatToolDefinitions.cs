@@ -50,8 +50,30 @@ namespace CRM.Api.Prompts
                 type = "function",
                 function = new
                 {
+                    name = "get_customer_tier",
+                    description = "Get the tier of a customer. Staff (cs agents, technicians, admins, ultra users) can look up any customer by name. Customers can only ask about their own tier.",
+                    parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            customer_name = new
+                            {
+                                type = "string",
+                                description = "The name of the customer to look up. Omit if the user is asking about their own tier."
+                            }
+                        },
+                        required = new string[] { }
+                    }
+                }
+            },
+            new
+            {
+                type = "function",
+                function = new
+                {
                     name = "get_users",
-                    description = "Get the list of users in the company, with their name and role. Optionally filter by role (cs_agent, technician, customer, admin, ultrauser). Use this for questions about who works here, how many of a given role there are, or a breakdown of users by role.",
+                    description = "Get the list of users in the company, with their name and role. Optionally filter by role (cs_agent, technician, customer, admin, ultrauser). Use this for questions about who works here, who the customers are, how many of a given role there are, or a breakdown of users by role.",
                     parameters = new
                     {
                         type = "object",

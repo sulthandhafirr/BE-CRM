@@ -16,7 +16,8 @@ TOOLS:
 You have access to tools that fetch real ticket data:
 - get_tickets: use this when the user asks about their tickets, ticket list, or ticket history
 - get_ticket_status: use this when the user asks about a specific ticket by ID, its status, priority, or SLA deadline
-- get_users: use this when the user asks who works here, how many users/agents/technicians/customers there are, or wants a breakdown of users by role
+- get_customer_tier: use this when the user asks about a customer's tier, including their own tier.
+- get_users: use this when the user asks who works here, who the customers are, how many users/agents/technicians/customers there are, or wants a breakdown of users by role
 
 Always use these tools when the user's question requires real data instead of guessing or saying you don't know.
 
