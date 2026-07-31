@@ -33,7 +33,7 @@ namespace CRM.Api.Controllers
         [HttpPost]
         public async Task<ActionResult<ChatResponse>> SendMessage([FromBody] ChatRequest request)
         {
-            
+
             var (role, companyId) = await GetCurrentUserRoleAndCompany();
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
             var userContext = await _chatToolService.GetUserContextAsync(userId, role);
@@ -45,10 +45,10 @@ namespace CRM.Api.Controllers
                 var apiKey = _configuration["deepseek_api"];
                 if (string.IsNullOrEmpty(apiKey))
                 {
-                    return BadRequest(new ChatResponse 
-                    { 
-                        Success = false, 
-                        Error = "DeepSeek API key not configured" 
+                    return BadRequest(new ChatResponse
+                    {
+                        Success = false,
+                        Error = "DeepSeek API key not configured"
                     });
                 }
 
@@ -59,6 +59,15 @@ namespace CRM.Api.Controllers
                 {
                     new { role = "system", content = ChatPrompts.SystemPrompt + "\n\n" + dateContext + "\n\n" + userContext}
                 };
+
+                // Add chat history if available
+                if (request.History != null)
+                {
+                    foreach (var msg in request.History)
+                    {
+                        messages.Add(new { role = msg.Role, content = msg.Content });
+                    }
+                }
 
                 // Add current message
                 messages.Add(new { role = "user", content = request.Message });
@@ -82,10 +91,10 @@ namespace CRM.Api.Controllers
                 if (!response.IsSuccessStatusCode)
                 {
                     var errorContent = await response.Content.ReadAsStringAsync();
-                    return BadRequest(new ChatResponse 
-                    { 
-                        Success = false, 
-                        Error = $"DeepSeek API error: {errorContent}" 
+                    return BadRequest(new ChatResponse
+                    {
+                        Success = false,
+                        Error = $"DeepSeek API error: {errorContent}"
                     });
                 }
 
@@ -138,29 +147,38 @@ namespace CRM.Api.Controllers
                     // Send the tool result back to DeepSeek for a final natural language answer
                     var followUpMessages = new List<object>
                     {
-                        new { role = "system", content = ChatPrompts.SystemPrompt + "\n\n" + dateContext + "\n\n" + userContext },
-                        new { role = "user", content = request.Message },
-                        new
-                        {
-                            role = "assistant",
-                            content = (string?)null,
-                            tool_calls = new[]
-                            {
-                                new
-                                {
-                                    id = toolCallId,
-                                    type = "function",
-                                    function = new { name = funcName, arguments = funcArgsJson }
-                                }
-                            }
-                        },
-                        new
-                        {
-                            role = "tool",
-                            tool_call_id = toolCallId,
-                            content = toolResult
-                        }
+                        new { role = "system", content = ChatPrompts.SystemPrompt + "\n\n" + dateContext + "\n\n" + userContext }
                     };
+
+                    if (request.History != null)
+                    {
+                        foreach (var msg in request.History)
+                        {
+                            followUpMessages.Add(new { role = msg.Role, content = msg.Content });
+                        }
+                    }
+
+                    followUpMessages.Add(new { role = "user", content = request.Message });
+                    followUpMessages.Add(new
+                    {
+                        role = "assistant",
+                        content = (string?)null,
+                        tool_calls = new[]
+                        {
+                            new
+                            {
+                                id = toolCallId,
+                                type = "function",
+                                function = new { name = funcName, arguments = funcArgsJson }
+                            }
+                        }
+                    });
+                    followUpMessages.Add(new
+                    {
+                        role = "tool",
+                        tool_call_id = toolCallId,
+                        content = toolResult
+                    });
 
                     var followUpPayload = new
                     {
@@ -202,18 +220,18 @@ namespace CRM.Api.Controllers
                 // Strip markdown formatting from the response
                 assistantMessage = MarkdownStripper.Strip(assistantMessage);
 
-                return Ok(new ChatResponse 
-                { 
-                    Message = assistantMessage, 
-                    Success = true 
+                return Ok(new ChatResponse
+                {
+                    Message = assistantMessage,
+                    Success = true
                 });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new ChatResponse 
-                { 
-                    Success = false, 
-                    Error = $"Internal server error: {ex.Message}" 
+                return StatusCode(500, new ChatResponse
+                {
+                    Success = false,
+                    Error = $"Internal server error: {ex.Message}"
                 });
             }
         }
