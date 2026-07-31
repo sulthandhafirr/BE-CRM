@@ -83,6 +83,28 @@ namespace CRM.Api.Controllers
                 var technicianHigh = technicianPriorityCounts.FirstOrDefault(p => p.Priority == "High")?.Count ?? 0;
                 var technicianCritical = technicianPriorityCounts.FirstOrDefault(p => p.Priority == "Critical")?.Count ?? 0;
 
+                var technicianStatusCounts = await _db.Tickets
+                    .AsNoTracking()
+                    .Where(t => t.TechnicianId == userId)
+                    .GroupBy(t => t.Status)
+                    .Select(g => new { Status = g.Key, Count = g.Count() })
+                    .ToListAsync();
+
+                var technicianSolved = technicianStatusCounts.FirstOrDefault(s => s.Status == "Solved")?.Count ?? 0;
+                var technicianProgress = technicianStatusCounts.FirstOrDefault(s => s.Status == "Progress")?.Count ?? 0;
+                var technicianWaiting = technicianStatusCounts.FirstOrDefault(s => s.Status == "Waiting")?.Count ?? 0;
+
+                var technicianIntentCounts = await _db.Tickets
+                    .AsNoTracking()
+                    .Where(t => t.TechnicianId == userId)
+                    .GroupBy(t => t.Intent != null ? t.Intent.IntentName : null)
+                    .Select(g => new { Intent = g.Key, Count = g.Count() })
+                    .ToListAsync();
+
+                var technicianTicketByIntent = technicianIntentCounts
+                    .GroupBy(x => x.Intent ?? "Unclassified")
+                    .ToDictionary(g => g.Key, g => g.Sum(x => x.Count));
+
                 return Ok(new DashboardStats
                 {
                     TotalMyTicket = totalMyTicket,
@@ -94,7 +116,14 @@ namespace CRM.Api.Controllers
                         Normal = technicianNormal,
                         High = technicianHigh,
                         Critical = technicianCritical
-                    }
+                    },
+                    TicketByStatus = new TicketByStatus
+                    {
+                        Solved = technicianSolved,
+                        Progress = technicianProgress,
+                        Waiting = technicianWaiting
+                    },
+                    TicketByIntent = technicianTicketByIntent
                 });
             }
 
@@ -222,7 +251,7 @@ namespace CRM.Api.Controllers
                 TicketByIntent = ticketByIntent,
                 MyAvgResponseTime = myAvgResponseTimeSec,
                 MyAvgResolutionTime = myAvgResolutionTimeSec,
-                SlaBreachedCount = slaBreachedCount,      
+                SlaBreachedCount = slaBreachedCount,
                 SlaAlmostBreachedCount = slaAlmostBreachedCount
             });
         }
