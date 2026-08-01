@@ -588,7 +588,13 @@ namespace CRM.Api.Controllers
             var slaDeadline = priorityResult.SlaResolutionHours.HasValue
                 ? DateTime.UtcNow.AddHours(priorityResult.SlaResolutionHours.Value)
                 : (DateTime?)null;
-                
+
+            if (slaDeadline.HasValue)
+            {
+                var company = await _db.Companies.AsNoTracking().FirstOrDefaultAsync(c => c.Id == companyId.Value);
+                slaDeadline = CompanyTimeZoneHelper.AdjustForWorkingDays(slaDeadline.Value, company?.WorkingDays, company?.Timezone);
+            }
+
             var priorityId = priority?.Id ?? 2;
 
             var intentEntity = await _db.Intents
