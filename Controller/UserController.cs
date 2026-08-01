@@ -23,13 +23,13 @@ namespace CRM.Api.Controllers
 
         // GET /api/users?role_id=2
         [HttpGet]
-        public async Task<IActionResult> GetUsersByRole([FromQuery] int role_id)
+        public async Task<IActionResult> GetUsersByRole([FromQuery] int role_id)    
         {
             // Ambil company_id dari admin yang login
             var (_, companyId) = await GetCurrentUserRoleAndCompany();
 
             var users = await _context.Profiles
-                .Where(p => p.RoleId == role_id && p.CompanyId == companyId) // ← tambah filter ini
+                .Where(p => p.RoleId == role_id && p.CompanyId == companyId)
                 .OrderBy(p => p.Name)
                 .Include(p => p.ProfileSkills)
                     .ThenInclude(ps => ps.Skill)
@@ -37,14 +37,20 @@ namespace CRM.Api.Controllers
                     .ThenInclude(pt => pt.Tier)
                 .Select(p => new
                 {
-                    id       = p.Id,
-                    name     = p.Name,
-                    email    = p.Email,
-                    position = p.Position,
+                    id         = p.Id,
+                    name       = p.Name,
+                    email      = p.Email,
+                    position   = p.Position,
+                    avatar_url = p.AvatarUrl, // ← tambahkan ini
                     profile_skill = p.ProfileSkills.Select(ps => new
                     {
-                        skills = new { skill = ps.Skill != null ? ps.Skill.SkillName : null }
-                    }),
+                        skillId = ps.SkillId,
+                        skills = new
+                        {
+                            id = ps.Skill != null ? ps.Skill.Id : ps.SkillId,
+                            skill = ps.Skill != null ? ps.Skill.SkillName : null
+                        }
+                    }).ToList(),
                     profile_tier = p.ProfileTiers.Select(pt => new
                     {
                         tier_id = pt.TierId,

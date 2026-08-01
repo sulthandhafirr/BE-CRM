@@ -8,6 +8,7 @@ namespace CRM.Api.Models
         public int RoleId { get; set; }
         public string? Position { get; set; }
         // Password tidak perlu — sudah dihandle frontend
+        public List<int>? SkillIds { get; set; }
     }
 
     public class AddUserResponse
