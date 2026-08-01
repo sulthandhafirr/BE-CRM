@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using System.Text.Json;
 using CRM.Api.Data;
 using CRM.Api.Models;
 using CRM.Api.Services;
@@ -243,11 +244,13 @@ namespace CRM.Api.Controllers
             var serviceKey = _config["Supabase:ServiceKey"];
             var httpClient = _httpClientFactory.CreateClient();
 
-            var filePath = attachment.FileUrl!.Replace($"{supabaseUrl}/storage/v1/object/public/ticket-attachment/", "");
+            var filePath = ExtractStorageFilePath(attachment.FileUrl, supabaseUrl);
+            if (string.IsNullOrWhiteSpace(filePath))
+                return BadRequest(new { message = "Attachment storage path is invalid" });
 
             var requestUrl = $"{supabaseUrl}/storage/v1/object/sign/ticket-attachment/{filePath}";
             var requestBody = new StringContent(
-                System.Text.Json.JsonSerializer.Serialize(new { expiresIn = 300 }),
+                JsonSerializer.Serialize(new { expiresIn = 300 }),
                 System.Text.Encoding.UTF8,
                 "application/json"
             );
@@ -259,10 +262,32 @@ namespace CRM.Api.Controllers
             var response = await httpClient.SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
 
-            var json = System.Text.Json.JsonDocument.Parse(responseBody);
-            var signedUrl = json.RootElement.GetProperty("signedURL").GetString();
+            if (!response.IsSuccessStatusCode)
+            {
+                return StatusCode((int)response.StatusCode, new
+                {
+                    message = "Failed to generate download URL",
+                    detail = responseBody
+                });
+            }
 
-            return Ok(new { signedUrl = $"{supabaseUrl}/storage/v1{signedUrl}" });
+            using var json = JsonDocument.Parse(responseBody);
+            var signedUrl = TryGetSignedUrl(json.RootElement);
+            if (string.IsNullOrWhiteSpace(signedUrl))
+            {
+                return StatusCode(502, new
+                {
+                    message = "Invalid response from storage service",
+                    detail = responseBody
+                });
+            }
+
+            var normalizedSignedUrl = signedUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                                      signedUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                ? signedUrl
+                : $"{supabaseUrl}/storage/v1{signedUrl}";
+
+            return Ok(new { signedUrl = normalizedSignedUrl });
         }
 
         // GET /api/tickets/all — agent/admin gets ALL tickets
@@ -1024,6 +1049,44 @@ namespace CRM.Api.Controllers
         }
 
         // ── Request models ────────────────────────────────────────────────────
+
+        private static string? ExtractStorageFilePath(string? fileUrl, string? supabaseUrl)
+        {
+            if (string.IsNullOrWhiteSpace(fileUrl) || string.IsNullOrWhiteSpace(supabaseUrl))
+                return null;
+
+            var publicPath = "/storage/v1/object/public/ticket-attachment/";
+            var prefix = $"{supabaseUrl.TrimEnd('/')}{publicPath}";
+
+            if (fileUrl.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return fileUrl[prefix.Length..];
+
+            var index = fileUrl.IndexOf(publicPath, StringComparison.OrdinalIgnoreCase);
+            if (index >= 0)
+                return fileUrl[(index + publicPath.Length)..];
+
+            return null;
+        }
+
+        private static string? TryGetSignedUrl(JsonElement root)
+        {
+            if (root.ValueKind != JsonValueKind.Object)
+                return null;
+
+            if (root.TryGetProperty("signedURL", out var signedUrlElement) && signedUrlElement.ValueKind == JsonValueKind.String)
+                return signedUrlElement.GetString();
+
+            if (root.TryGetProperty("signedUrl", out var signedUrlElement2) && signedUrlElement2.ValueKind == JsonValueKind.String)
+                return signedUrlElement2.GetString();
+
+            if (root.TryGetProperty("url", out var urlElement) && urlElement.ValueKind == JsonValueKind.String)
+                return urlElement.GetString();
+
+            if (root.TryGetProperty("signed_url", out var signedUrlElement3) && signedUrlElement3.ValueKind == JsonValueKind.String)
+                return signedUrlElement3.GetString();
+
+            return null;
+        }
 
         public class UpdateTicketRequest
         {
