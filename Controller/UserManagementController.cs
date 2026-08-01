@@ -58,7 +58,10 @@ namespace CRM.Api.Controllers
             var skillIds = (request.SkillIds ?? new List<int>()).Distinct().ToList();
             if (skillIds.Count > 0)
             {
-                var existingSkillCount = await _db.Skills.CountAsync(s => skillIds.Contains(s.Id));
+                // Scoped to the admin's company — a skill belonging to another
+                // company must not be assignable here, even if the id exists.
+                var existingSkillCount = await _db.Skills
+                    .CountAsync(s => skillIds.Contains(s.Id) && s.CompanyId == adminProfile.CompanyId);
                 if (existingSkillCount != skillIds.Count)
                     return BadRequest(new AddUserResponse { Success = false, Message = "One or more skills are invalid." });
             }
@@ -168,7 +171,10 @@ namespace CRM.Api.Controllers
             if (profile == null)
                 return NotFound(new { message = "Profile not found." });
 
-            var skillExists = await _db.Skills.AnyAsync(s => s.Id == request.SkillId);
+            // Scoped to the admin's company — prevents attaching a skill that
+            // belongs to a different company/tenant to this profile.
+            var skillExists = await _db.Skills
+                .AnyAsync(s => s.Id == request.SkillId && s.CompanyId == adminProfile.CompanyId);
             if (!skillExists)
                 return BadRequest(new { message = "Invalid skill." });
 

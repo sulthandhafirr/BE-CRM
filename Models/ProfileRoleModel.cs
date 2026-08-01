@@ -52,6 +52,12 @@ namespace CRM.Api.Models
 
         [Column("skill")]
         public string? SkillName { get; set; }
+
+        [Column("company_id")]
+        public int? CompanyId { get; set; }
+
+        [ForeignKey("CompanyId")]
+        public Company? Company { get; set; }
     }
 
     [Table("profile_skill", Schema = "public")]

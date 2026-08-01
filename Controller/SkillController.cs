@@ -1,37 +1,49 @@
 using CRM.Api.Data;
 using CRM.Api.Models;
+using CRM.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace CRM.Api.Controllers
 {
-    /// <summary>
-    /// Endpoint untuk pencarian skill (autocomplete) dan pembuatan skill baru
-    /// dari field "tag" di form tambah teknisi.
-    /// </summary>
+
     [ApiController]
     [Route("api/skill")]
-    public class SkillController : ControllerBase
+    [Authorize]
+    public class SkillController : BaseController
     {
         private const int MaxSearchResults = 15;
 
-        private readonly AppDbContext _context; // TODO: ganti "AppDbContext" sesuai nama DbContext-mu
+        private readonly AppDbContext _context;
 
-        public SkillController(AppDbContext context)
+        public SkillController(AppDbContext context, RoleService roleService)
+            : base(roleService)
         {
             _context = context;
         }
 
-        /// <summary>
-        /// GET /api/skills/search?query=react
-        /// Dipakai oleh SkillField saat user mengetik di form.
-        /// </summary>
+        private async Task<int?> GetCurrentCompanyIdAsync()
+        {
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            var profile = await _context.Profiles.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == userId);
+            return profile?.CompanyId;
+        }
+
+
         [HttpGet("search")]
         public async Task<ActionResult<IEnumerable<SkillDto>>> Search([FromQuery] string query = "")
         {
+            var companyId = await GetCurrentCompanyIdAsync();
+            if (companyId == null)
+                return Unauthorized(new { message = "Company not found for current user." });
+
             var normalizedQuery = query?.Trim().ToLower() ?? string.Empty;
 
-            var skillsQuery = _context.Skills.AsNoTracking().AsQueryable();
+            var skillsQuery = _context.Skills.AsNoTracking()
+                .Where(s => s.CompanyId == companyId);
 
             if (!string.IsNullOrEmpty(normalizedQuery))
             {
@@ -48,15 +60,14 @@ namespace CRM.Api.Controllers
             return Ok(results);
         }
 
-        /// <summary>
-        /// POST /api/skills  { "skillName": "React" }
-        /// Idempotent: kalau skill dengan nama sama (case-insensitive) sudah ada,
-        /// kembalikan yang sudah ada alih-alih membuat duplikat.
-        /// Dipanggil AddUserForm untuk setiap tag `isNew` sebelum user teknisi dibuat.
-        /// </summary>
+
         [HttpPost]
         public async Task<ActionResult<SkillDto>> Create([FromBody] CreateSkillRequest request)
         {
+            var companyId = await GetCurrentCompanyIdAsync();
+            if (companyId == null)
+                return Unauthorized(new { message = "Company not found for current user." });
+
             var name = request?.Skill?.Trim();
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -64,14 +75,16 @@ namespace CRM.Api.Controllers
             }
 
             var existing = await _context.Skills
-                .FirstOrDefaultAsync(s => s.SkillName != null && s.SkillName.ToLower() == name.ToLower());
+                .FirstOrDefaultAsync(s =>
+                    s.CompanyId == companyId &&
+                    s.SkillName != null && s.SkillName.ToLower() == name.ToLower());
 
             if (existing is not null)
             {
                 return Ok(new SkillDto(existing.Id, existing.SkillName!));
             }
 
-            var skill = new Skill { SkillName = name };
+            var skill = new Skill { SkillName = name, CompanyId = companyId };
             _context.Skills.Add(skill);
             await _context.SaveChangesAsync();
 
@@ -79,9 +92,6 @@ namespace CRM.Api.Controllers
         }
     }
 
-    // Nama properti sengaja "Skill" (bukan "SkillName") supaya hasil serialisasi JSON
-    // camelCase-nya jadi { id, skill } — cocok dengan bentuk objek yang dipakai
-    // SkillField.jsx (option.skill, o.id, dst).
     public record SkillDto(int Id, string Skill);
 
     public record CreateSkillRequest(string Skill);
