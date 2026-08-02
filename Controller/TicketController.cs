@@ -379,7 +379,7 @@ namespace CRM.Api.Controllers
                 {
                     var agent = await _db.Profiles
                         .AsNoTracking()
-                        .FirstOrDefaultAsync(p => p.Name == request.Solver && p.RoleId == 2);
+                        .FirstOrDefaultAsync(p => p.Name == request.Solver && p.CompanyId == companyId && p.Role!.RoleName.ToLower() == "cs_agent");
                     if (agent != null)
                         ticket.AgentId = agent.Id;
                 }
@@ -396,10 +396,22 @@ namespace CRM.Api.Controllers
                 {
                     var tech = await _db.Profiles
                         .AsNoTracking()
-                        .FirstOrDefaultAsync(p => p.Name == request.Technician && p.RoleId == 3);
+                        .FirstOrDefaultAsync(p => p.Name == request.Technician && p.CompanyId == companyId && p.Role!.RoleName.ToLower() == "technician");
                     if (tech != null)
                         ticket.TechnicianId = tech.Id;
                 }
+            }
+
+            // ── NEW: update intent (issue detected) by name ──
+            // FE sends display names (e.g. "Billing Issue"), DB stores snake_case keys (e.g. "billing_issue")
+            if (request.Intent != null)
+            {
+                var normalizedIntent = request.Intent.Trim().ToLowerInvariant().Replace(" ", "_");
+                var intent = await _db.Intents
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(i => i.IntentName == request.Intent || i.IntentName == normalizedIntent);
+                if (intent != null)
+                    ticket.IntentId = intent.Id;
             }
 
             // Count ResolutionTime if ticket status change to "Solved"
@@ -757,7 +769,7 @@ namespace CRM.Api.Controllers
             if (role != "cs_agent" && role != "admin") return Forbid();
 
             var technicians = await _db.Profiles
-                .Where(p => p.RoleId == 3 && p.CompanyId == companyId)
+                .Where(p => p.CompanyId == companyId && p.Role != null && p.Role.RoleName.ToLower() == "technician")
                 .AsNoTracking()
                 .Select(p => new
                 {
@@ -1111,6 +1123,9 @@ namespace CRM.Api.Controllers
 
             [JsonPropertyName("technician")]
             public string? Technician { get; set; }
+
+            [JsonPropertyName("intent")]
+            public string? Intent { get; set; }
         }
 
         public class AttachmentInfo
