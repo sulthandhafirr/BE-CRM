@@ -51,6 +51,33 @@ namespace CRM.Api.Controllers
                     && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate));
                 var totalMyTicket = activeTicket + solvedTicket;
 
+                var customerStatusCounts = await _db.Tickets
+                    .AsNoTracking()
+                    .Where(t => t.CustomerId == userId
+                        && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate)
+                        && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
+                    .GroupBy(t => t.Status)
+                    .Select(g => new { Status = g.Key, Count = g.Count() })
+                    .ToListAsync();
+
+                var customerSolved = customerStatusCounts.FirstOrDefault(s => s.Status == "Solved")?.Count ?? 0;
+                var customerProgress = customerStatusCounts.FirstOrDefault(s => s.Status == "Progress")?.Count ?? 0;
+                var customerWaiting = customerStatusCounts.FirstOrDefault(s => s.Status == "Waiting")?.Count ?? 0;
+
+                var customerAvgResponseTimeSec = await _db.Tickets
+                    .AsNoTracking()
+                    .Where(t => t.CustomerId == userId && t.ResponseTimeSec != null
+                        && (!effectiveStartDate.HasValue || t.ResolvedAt >= effectiveStartDate)
+                        && (!effectiveEndDate.HasValue || t.ResolvedAt <= effectiveEndDate))
+                    .AverageAsync(t => (double?)t.ResponseTimeSec);
+
+                var customerAvgResolutionTimeSec = await _db.Tickets
+                    .AsNoTracking()
+                    .Where(t => t.CustomerId == userId && t.Status == "Solved" && t.ResolutionTimeSec != null
+                        && (!effectiveStartDate.HasValue || t.ResolvedAt >= effectiveStartDate)
+                        && (!effectiveEndDate.HasValue || t.ResolvedAt <= effectiveEndDate))
+                    .AverageAsync(t => (double?)t.ResolutionTimeSec);
+
                 return Ok(new DashboardStats
                 {
                     TotalCsAgent = totalCsAgent,
@@ -58,7 +85,14 @@ namespace CRM.Api.Controllers
                     TotalMyTicket = totalMyTicket,
                     ActiveTicket = activeTicket,
                     SolvedTicket = solvedTicket,
-                    // TotalCustomer and TicketByStatus are omitted — will be null/0
+                    TicketByStatus = new TicketByStatus
+                    {
+                        Solved = customerSolved,
+                        Progress = customerProgress,
+                        Waiting = customerWaiting
+                    },
+                    MyAvgResponseTime = customerAvgResponseTimeSec,
+                    MyAvgResolutionTime = customerAvgResolutionTimeSec
                 });
             }
 
@@ -228,7 +262,6 @@ namespace CRM.Api.Controllers
                     TicketByIntent = ticketByIntent,
                     SlaBreachedCount = slaBreachedCount,
                     SlaAlmostBreachedCount = slaAlmostBreachedCount
-                    // No MyAvgResponseTime/MyAvgResolutionTime admin has no personal tickets
                 });
             }
 
@@ -307,7 +340,6 @@ namespace CRM.Api.Controllers
                 TicketByIntent = myTicketByIntent,
                 MyAvgResponseTime = myAvgResponseTimeSec,
                 MyAvgResolutionTime = myAvgResolutionTimeSec
-                // No TotalCustomer, SlaBreachedCount, SlaAlmostBreachedCount — admin-only per your answer
             });
         }
         // GET /api/dashboard/ticket-trend
@@ -368,7 +400,7 @@ namespace CRM.Api.Controllers
             [FromQuery] DateTime? endDate)
         {
             var (role, companyId) = await GetCurrentUserRoleAndCompany();
-            if (role != "admin" && role != "cs_agent" && role != "technician") return Forbid();
+            if (role != "admin" && role != "cs_agent" && role != "technician" && role != "customer") return Forbid();
 
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
@@ -382,9 +414,12 @@ namespace CRM.Api.Controllers
             var query = _db.Tickets.AsNoTracking().AsQueryable();
 
             // Scope by role — technician sees only their own, admin/cs_agent see company-wide
-            query = role == "technician"
-                ? query.Where(t => t.TechnicianId == userId)
-                : query.Where(t => t.Customer!.CompanyId == companyId);
+            query = role switch
+            {
+                "technician" => query.Where(t => t.TechnicianId == userId),
+                "customer" => query.Where(t => t.CustomerId == userId),
+                _ => query.Where(t => t.Customer!.CompanyId == companyId), // admin, cs_agent
+            };
 
             if (!string.IsNullOrEmpty(status))
                 query = query.Where(t => t.Status!.ToLower() == status.ToLower());
@@ -406,6 +441,8 @@ namespace CRM.Api.Controllers
             if (effectiveEnd.HasValue)
                 query = query.Where(t => t.CreatedAt <= effectiveEnd);
 
+            var isCustomer = role == "customer";
+
             var tickets = await query
                 .OrderByDescending(t => t.CreatedAt)
                 .Select(t => new
@@ -413,8 +450,8 @@ namespace CRM.Api.Controllers
                     id = t.Id,
                     subject = t.Subject,
                     status = t.Status,
-                    priority = t.Priority!.PriorityName,
-                    intent = t.Intent != null ? t.Intent.IntentName : "Unclassified",
+                    priority = isCustomer ? null : t.Priority!.PriorityName,
+                    intent = isCustomer ? null : (t.Intent != null ? t.Intent.IntentName : "Unclassified"),
                     createdAt = t.CreatedAt
                 })
                 .ToListAsync();
