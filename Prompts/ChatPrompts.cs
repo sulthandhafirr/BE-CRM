@@ -53,10 +53,13 @@ When listing multiple tickets, put each ticket on its own line using this patter
 If priority data is available (not null), add it: - Priority: [priority]
 If priority is null or missing, omit it completely from that line.
 Add a blank line between each ticket entry for readability.
-Keep each line short and scannable
+Keep each line short and scannable.
+
+If a customer's ticket data does not include priority or SLA deadline information, do not say it is ""not set"" or ""no priority is set"" — simply omit any mention of priority or SLA entirely for customers. 
+These fields exist but are intentionally not shown to customers.
 
 ACCURACY:
-Only describe features that exist in this CRM. If unsure, say:
+Only describe features that exist in this CRM.If unsure, say:
 ""This information is not available in the current CRM context.""";
     }
 }

@@ -52,26 +52,30 @@ namespace CRM.Api.Services
             return $"You are talking to {profile.Name}, who is {roleDisplay}{positionText} at {profile.CompanyName}.";
         }
 
-        public async Task<string> GetTicketStatusAsync(string ticketId, int? companyId)
+        public async Task<string> GetTicketStatusAsync(string ticketId, Guid userId, string? role, int? companyId)
         {
             if (!long.TryParse(ticketId, out var id))
                 return JsonSerializer.Serialize(new { error = "Invalid ticket ID format" });
 
-            var ticket = await _db.Tickets
-                .AsNoTracking()
-                .Where(t => t.Id == id && t.Customer!.CompanyId == companyId)
+            var query = _db.Tickets.AsNoTracking().Where(t => t.Id == id && t.Customer!.CompanyId == companyId);
+
+            if (role == "customer")
+                query = query.Where(t => t.CustomerId == userId);
+
+            var ticket = await query
                 .Select(t => new
                 {
                     t.Id,
                     t.Subject,
                     t.Description,
                     t.Status,
-                    Priority = t.Priority!.PriorityName,
-                    t.SlaDeadline,
-                    t.SlaBreached,
+                    Priority = role == "customer" ? null : t.Priority!.PriorityName,
+                    SlaDeadline = role == "customer" ? (DateTime?)null : t.SlaDeadline,
+                    SlaBreached = role == "customer" ? (bool?)null : t.SlaBreached,
                     t.CreatedAt,
                     t.ResolvedAt,
-                    AssignedAgentName = t.Agent != null ? t.Agent.Name : null
+                    AssignedAgentName = t.Agent != null ? t.Agent.Name : null,
+                    AssignedTechnicianName = t.Technician != null ? t.Technician.Name : null
                 })
                 .FirstOrDefaultAsync();
 
@@ -85,20 +89,26 @@ namespace CRM.Api.Services
         {
             var query = _db.Tickets.AsNoTracking().Where(t => t.Customer!.CompanyId == companyId);
 
-            query = scope switch
+            if (role == "customer")
             {
-                "mine" => role switch
+                query = query.Where(t => t.CustomerId == userId);
+            }
+            else
+            {
+                query = scope switch
                 {
-                    "customer" => query.Where(t => t.CustomerId == userId),
-                    "cs_agent" => query.Where(t => t.AgentId == userId),
-                    "technician" => query.Where(t => t.TechnicianId == userId),
+                    "mine" => role switch
+                    {
+                        "cs_agent" => query.Where(t => t.AgentId == userId),
+                        "technician" => query.Where(t => t.TechnicianId == userId),
+                        _ => query.Where(t => t.CustomerId == userId)
+                    },
+                    "unassigned" => query.Where(t => t.AgentId == null && t.Status == "Waiting"),
+                    "others" => query.Where(t => t.AgentId != null && t.AgentId != userId),
+                    "all" => query,
                     _ => query.Where(t => t.CustomerId == userId)
-                },
-                "unassigned" => query.Where(t => t.AgentId == null && t.Status == "Waiting"),
-                "others" => query.Where(t => t.AgentId != null && t.AgentId != userId),
-                "all" => query,
-                _ => query.Where(t => t.CustomerId == userId)
-            };
+                };
+            }
 
             if (DateTime.TryParse(startDate, out var start))
                 query = query.Where(t => t.CreatedAt >= DateTime.SpecifyKind(start, DateTimeKind.Utc));
@@ -278,7 +288,7 @@ namespace CRM.Api.Services
             return funcName switch
             {
                 "get_ticket_status" => await GetTicketStatusAsync(
-                    JsonDocument.Parse(funcArgsJson!).RootElement.GetProperty("ticket_id").GetString() ?? "", companyId),
+                    JsonDocument.Parse(funcArgsJson!).RootElement.GetProperty("ticket_id").GetString() ?? "", userId, role, companyId),
                 "get_tickets" => await GetTicketsAsync(
                     JsonDocument.Parse(funcArgsJson!).RootElement.GetProperty("scope").GetString() ?? "mine",
                     userId, role, companyId,
