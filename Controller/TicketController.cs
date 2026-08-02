@@ -778,7 +778,12 @@ namespace CRM.Api.Controllers
                     email = p.Email,
                     position = p.Position,
                     skills = p.ProfileSkills
-                        .Select(ps => ps.Skill!.SkillName)
+                        .Select(ps => new
+                        {
+                            id = ps.SkillId,
+                            skill = ps.Skill != null ? ps.Skill.SkillName : null
+                        })
+                        .Where(s => s.skill != null)
                         .ToList()
                 })
                 .ToListAsync();
