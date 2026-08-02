@@ -127,24 +127,147 @@ namespace CRM.Api.Controllers
                 });
             }
 
+            if (role == "admin")
+            {
+                // ADMIN
+
+                var profileCounts = await _db.Profiles
+                    .AsNoTracking()
+                    .Where(p => p.CompanyId == companyId)
+                    .GroupBy(p => p.RoleId)
+                    .Select(g => new { RoleId = g.Key, Count = g.Count() })
+                    .ToListAsync();
+
+                var ticketCounts = await _db.Tickets
+                    .AsNoTracking()
+                    .Where(t => t.Customer!.CompanyId == companyId
+                        && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
+                    .GroupBy(t => t.Status)
+                    .Select(g => new { Status = g.Key, Count = g.Count() })
+                    .ToListAsync();
+
+                var priorityCounts = await _db.Tickets
+                    .AsNoTracking()
+                    .Where(t => t.Priority != null && t.Customer!.CompanyId == companyId
+                        && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
+                    .GroupBy(t => t.Priority!.PriorityName)
+                    .Select(g => new { Priority = g.Key, Count = g.Count() })
+                    .ToListAsync();
+
+                var intentCounts = await _db.Tickets
+                    .AsNoTracking()
+                    .Where(t => t.Customer!.CompanyId == companyId
+                        && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
+                    .GroupBy(t => t.Intent != null ? t.Intent.IntentName : null)
+                    .Select(g => new { Intent = g.Key, Count = g.Count() })
+                    .ToListAsync();
+
+                var ticketByIntent = intentCounts
+                    .GroupBy(x => x.Intent ?? "Unclassified")
+                    .ToDictionary(g => g.Key, g => g.Sum(x => x.Count));
+
+                var slaBreachedCount = await _db.Tickets
+                    .AsNoTracking()
+                    .CountAsync(t => t.Customer!.CompanyId == companyId
+                        && t.SlaBreached
+                        && t.Status != "Solved");
+
+                var notifyMinutes = 30;
+                var company = await _db.Companies.AsNoTracking().FirstOrDefaultAsync(c => c.Id == companyId);
+                if (company?.SlaConfig is not null)
+                {
+                    try
+                    {
+                        var config = System.Text.Json.JsonSerializer.Deserialize<SlaRulesConfigDto>(
+                            company.SlaConfig,
+                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (config is not null && config.EnableSlaMonitoring)
+                            notifyMinutes = config.NotifyBeforeBreachedMinutes;
+                    }
+                    catch { }
+                }
+
+                var candidateTickets = await _db.Tickets
+                    .AsNoTracking()
+                    .Where(t => t.Customer!.CompanyId == companyId
+                        && t.SlaDeadline != null
+                        && !t.SlaBreached
+                        && t.SlaDeadline > DateTime.UtcNow)
+                    .Select(t => t.SlaDeadline!.Value)
+                    .ToListAsync();
+
+                var slaAlmostBreachedCount = candidateTickets
+                    .Count(deadline => (deadline - DateTime.UtcNow).TotalMinutes <= notifyMinutes);
+
+                var csAgentRoleId = roleIds.GetValueOrDefault("cs_agent", 0);
+                var technicianRoleId = roleIds.GetValueOrDefault("technician", 0);
+                var customerRoleId = roleIds.GetValueOrDefault("customer", 0);
+
+                var totalCsAgentFull = profileCounts.FirstOrDefault(p => p.RoleId == csAgentRoleId)?.Count ?? 0;
+                var totalTechnicianFull = profileCounts.FirstOrDefault(p => p.RoleId == technicianRoleId)?.Count ?? 0;
+                var totalCustomer = profileCounts.FirstOrDefault(p => p.RoleId == customerRoleId)?.Count ?? 0;
+                var totalTicket = ticketCounts.Sum(t => t.Count);
+
+                var solved = ticketCounts.FirstOrDefault(t => t.Status == "Solved")?.Count ?? 0;
+                var progress = ticketCounts.FirstOrDefault(t => t.Status == "Progress")?.Count ?? 0;
+                var waiting = ticketCounts.FirstOrDefault(t => t.Status == "Waiting")?.Count ?? 0;
+
+                var low = priorityCounts.FirstOrDefault(p => p.Priority == "Low")?.Count ?? 0;
+                var normal = priorityCounts.FirstOrDefault(p => p.Priority == "Normal")?.Count ?? 0;
+                var high = priorityCounts.FirstOrDefault(p => p.Priority == "High")?.Count ?? 0;
+                var critical = priorityCounts.FirstOrDefault(p => p.Priority == "Critical")?.Count ?? 0;
+
+                return Ok(new DashboardStats
+                {
+                    TotalCsAgent = totalCsAgentFull,
+                    TotalTechnician = totalTechnicianFull,
+                    TotalCustomer = totalCustomer,
+                    TotalTicket = totalTicket,
+                    TicketByStatus = new TicketByStatus { Solved = solved, Progress = progress, Waiting = waiting },
+                    TicketByPriority = new TicketByPriority { Low = low, Normal = normal, High = high, Critical = critical },
+                    TicketByIntent = ticketByIntent,
+                    SlaBreachedCount = slaBreachedCount,
+                    SlaAlmostBreachedCount = slaAlmostBreachedCount
+                    // No MyAvgResponseTime/MyAvgResolutionTime admin has no personal tickets
+                });
+            }
+
             // CS AGENT
 
-            // query: group profiles by role_id
-            var profileCounts = await _db.Profiles
+            var csProfileCounts = await _db.Profiles
                 .AsNoTracking()
                 .Where(p => p.CompanyId == companyId)
                 .GroupBy(p => p.RoleId)
                 .Select(g => new { RoleId = g.Key, Count = g.Count() })
                 .ToListAsync();
 
-            // query: group tickets by status + total
-            var ticketCounts = await _db.Tickets
+            var myTicketCounts = await _db.Tickets
                 .AsNoTracking()
-                .Where(t => t.Customer!.CompanyId == companyId
+                .Where(t => t.AgentId == userId
                     && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
                 .GroupBy(t => t.Status)
                 .Select(g => new { Status = g.Key, Count = g.Count() })
                 .ToListAsync();
+
+            var myPriorityCounts = await _db.Tickets
+                .AsNoTracking()
+                .Where(t => t.Priority != null && t.AgentId == userId
+                    && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
+                .GroupBy(t => t.Priority!.PriorityName)
+                .Select(g => new { Priority = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            var myIntentCounts = await _db.Tickets
+                .AsNoTracking()
+                .Where(t => t.AgentId == userId
+                    && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
+                .GroupBy(t => t.Intent != null ? t.Intent.IntentName : null)
+                .Select(g => new { Intent = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            var myTicketByIntent = myIntentCounts
+                .GroupBy(x => x.Intent ?? "Unclassified")
+                .ToDictionary(g => g.Key, g => g.Sum(x => x.Count));
 
             var myAvgResponseTimeSec = await _db.Tickets
                 .AsNoTracking()
@@ -158,101 +281,33 @@ namespace CRM.Api.Controllers
                     && (!effectiveStartDate.HasValue || t.ResolvedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.ResolvedAt <= effectiveEndDate))
                 .AverageAsync(t => (double?)t.ResolutionTimeSec);
 
-            var priorityCounts = await _db.Tickets
-                .AsNoTracking()
-                .Where(t => t.Priority != null && t.Customer!.CompanyId == companyId
-                    && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
-                .GroupBy(t => t.Priority!.PriorityName)
-                .Select(g => new { Priority = g.Key, Count = g.Count() })
-                .ToListAsync();
+            var myCsAgentRoleId = roleIds.GetValueOrDefault("cs_agent", 0);
+            var myTechnicianRoleId = roleIds.GetValueOrDefault("technician", 0);
 
-            var intentCounts = await _db.Tickets
-                .AsNoTracking()
-                .Where(t => t.Customer!.CompanyId == companyId
-                    && (!effectiveStartDate.HasValue || t.CreatedAt >= effectiveStartDate) && (!effectiveEndDate.HasValue || t.CreatedAt <= effectiveEndDate))
-                .GroupBy(t => t.Intent != null ? t.Intent.IntentName : null)
-                .Select(g => new { Intent = g.Key, Count = g.Count() })
-                .ToListAsync();
+            var totalCsAgentForCsAgent = csProfileCounts.FirstOrDefault(p => p.RoleId == myCsAgentRoleId)?.Count ?? 0;
+            var totalTechnicianForCsAgent = csProfileCounts.FirstOrDefault(p => p.RoleId == myTechnicianRoleId)?.Count ?? 0;
+            var myTotalTicket = myTicketCounts.Sum(t => t.Count);
 
-            var ticketByIntent = intentCounts
-                .GroupBy(x => x.Intent ?? "Unclassified")
-                .ToDictionary(g => g.Key, g => g.Sum(x => x.Count));
+            var mySolved = myTicketCounts.FirstOrDefault(t => t.Status == "Solved")?.Count ?? 0;
+            var myProgress = myTicketCounts.FirstOrDefault(t => t.Status == "Progress")?.Count ?? 0;
+            var myWaiting = myTicketCounts.FirstOrDefault(t => t.Status == "Waiting")?.Count ?? 0;
 
-            var slaBreachedCount = await _db.Tickets
-                .AsNoTracking()
-                .CountAsync(t => t.Customer!.CompanyId == companyId
-                    && t.SlaBreached
-                    && t.Status != "Solved");
-
-            var notifyMinutes = 30; // fallback
-            var company = await _db.Companies.AsNoTracking().FirstOrDefaultAsync(c => c.Id == companyId);
-            if (company?.SlaConfig is not null)
-            {
-                try
-                {
-                    var config = System.Text.Json.JsonSerializer.Deserialize<SlaRulesConfigDto>(
-                        company.SlaConfig,
-                        new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    if (config is not null && config.EnableSlaMonitoring)
-                        notifyMinutes = config.NotifyBeforeBreachedMinutes;
-                }
-                catch { /* keep fallback */ }
-            }
-
-            var candidateTickets = await _db.Tickets
-                .AsNoTracking()
-                .Where(t => t.Customer!.CompanyId == companyId
-                    && t.SlaDeadline != null
-                    && !t.SlaBreached
-                    && t.SlaDeadline > DateTime.UtcNow)
-                .Select(t => t.SlaDeadline!.Value)
-                .ToListAsync();
-
-            var slaAlmostBreachedCount = candidateTickets
-                .Count(deadline => (deadline - DateTime.UtcNow).TotalMinutes <= notifyMinutes);
-
-            var csAgentRoleId = roleIds.GetValueOrDefault("cs_agent", 0);
-            var technicianRoleId = roleIds.GetValueOrDefault("technician", 0);
-            var customerRoleId = roleIds.GetValueOrDefault("customer", 0);
-
-            var totalCsAgentFull = profileCounts.FirstOrDefault(p => p.RoleId == csAgentRoleId)?.Count ?? 0;
-            var totalTechnicianFull = profileCounts.FirstOrDefault(p => p.RoleId == technicianRoleId)?.Count ?? 0;
-            var totalCustomer = profileCounts.FirstOrDefault(p => p.RoleId == customerRoleId)?.Count ?? 0;
-            var totalTicket = ticketCounts.Sum(t => t.Count);
-
-            var solved = ticketCounts.FirstOrDefault(t => t.Status == "Solved")?.Count ?? 0;
-            var progress = ticketCounts.FirstOrDefault(t => t.Status == "Progress")?.Count ?? 0;
-            var waiting = ticketCounts.FirstOrDefault(t => t.Status == "Waiting")?.Count ?? 0;
-
-            var low = priorityCounts.FirstOrDefault(p => p.Priority == "Low")?.Count ?? 0;
-            var normal = priorityCounts.FirstOrDefault(p => p.Priority == "Normal")?.Count ?? 0;
-            var high = priorityCounts.FirstOrDefault(p => p.Priority == "High")?.Count ?? 0;
-            var critical = priorityCounts.FirstOrDefault(p => p.Priority == "Critical")?.Count ?? 0;
+            var myLow = myPriorityCounts.FirstOrDefault(p => p.Priority == "Low")?.Count ?? 0;
+            var myNormal = myPriorityCounts.FirstOrDefault(p => p.Priority == "Normal")?.Count ?? 0;
+            var myHigh = myPriorityCounts.FirstOrDefault(p => p.Priority == "High")?.Count ?? 0;
+            var myCritical = myPriorityCounts.FirstOrDefault(p => p.Priority == "Critical")?.Count ?? 0;
 
             return Ok(new DashboardStats
             {
-                TotalCsAgent = totalCsAgentFull,
-                TotalTechnician = totalTechnicianFull,
-                TotalCustomer = totalCustomer,
-                TotalTicket = totalTicket,
-                TicketByStatus = new TicketByStatus
-                {
-                    Solved = solved,
-                    Progress = progress,
-                    Waiting = waiting
-                },
-                TicketByPriority = new TicketByPriority
-                {
-                    Low = low,
-                    Normal = normal,
-                    High = high,
-                    Critical = critical
-                },
-                TicketByIntent = ticketByIntent,
+                TotalCsAgent = totalCsAgentForCsAgent,
+                TotalTechnician = totalTechnicianForCsAgent,
+                TotalTicket = myTotalTicket,
+                TicketByStatus = new TicketByStatus { Solved = mySolved, Progress = myProgress, Waiting = myWaiting },
+                TicketByPriority = new TicketByPriority { Low = myLow, Normal = myNormal, High = myHigh, Critical = myCritical },
+                TicketByIntent = myTicketByIntent,
                 MyAvgResponseTime = myAvgResponseTimeSec,
-                MyAvgResolutionTime = myAvgResolutionTimeSec,
-                SlaBreachedCount = slaBreachedCount,
-                SlaAlmostBreachedCount = slaAlmostBreachedCount
+                MyAvgResolutionTime = myAvgResolutionTimeSec
+                // No TotalCustomer, SlaBreachedCount, SlaAlmostBreachedCount — admin-only per your answer
             });
         }
         // GET /api/dashboard/ticket-trend
