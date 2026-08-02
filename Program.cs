@@ -101,6 +101,9 @@ builder.Services.AddScoped<IntentAnalysisService>();
 
 builder.Services.AddScoped<UrgencyAnalysisService>();
 
+builder.Services.Configure<PriorityEngineOptions>(
+    builder.Configuration.GetSection(PriorityEngineOptions.SectionName));
+
 builder.Services.AddScoped<PriorityEngineService>();
 
 builder.Services.AddScoped<TicketRecommendationService>();

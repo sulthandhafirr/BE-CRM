@@ -1,39 +1,38 @@
 using CRM.Api.Data;
 using CRM.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 namespace CRM.Api.Services
 {
-    /// <summary>
-    /// Business Rules Engine that determines final ticket priority by combining:
-    ///   - Intent model output (base priority mapping)
-    ///   - Urgency model output (urgency level)
-    ///   - Keyword rules (escalation keywords in description)
-    ///   - Customer rules (tier-based priority boost)
-    ///   - SLA rules (time-based escalation)
-    /// </summary>
+    /// Calculates the final ticket priority: Priority Score + Intent Weight + Tier Score.
     public class PriorityEngineService
     {
-        private readonly AppDbContext _db;
-        private static readonly TimeSpan SlaWarningThreshold = TimeSpan.FromHours(2);
+        /// Score per priority level ("medium" = "normal").
+        private static readonly Dictionary<string, int> PriorityScores = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["low"] = 25,
+            ["normal"] = 50,
+            ["medium"] = 50,
+            ["high"] = 75,
+            ["critical"] = 100,
+        };
 
-        public PriorityEngineService(AppDbContext db)
+        private const int TierScoreStep = 5;
+        private const int MaxTierScore = 20;
+
+        private readonly AppDbContext _db;
+        private readonly Dictionary<string, int> _intentWeights;
+
+        public PriorityEngineService(AppDbContext db, IOptions<PriorityEngineOptions> options)
         {
             _db = db;
+            // Case-insensitive copy.
+            _intentWeights = new Dictionary<string, int>(options.Value.IntentWeights, StringComparer.OrdinalIgnoreCase);
         }
 
-        /// <summary>
-        /// Resolves the final priority for a ticket.
-        /// </summary>
-        /// <param name="description">Ticket description text (used for keyword scanning).</param>
-        /// <param name="customerId">Customer GUID (used to look up tier).</param>
-        /// <param name="intent">Predicted intent from the intent model.</param>
-        /// <param name="intentConfidence">Confidence score of the intent prediction.</param>
-        /// <param name="urgency">Predicted urgency level (low / medium / high / critical).</param>
-        /// <param name="urgencyConfidence">Confidence score of the urgency prediction.</param>
-        /// <param name="cancellationToken">Optional cancellation token.</param>
-        /// <returns>The final priority name string: "Critical", "High", "Normal", or "Low".</returns>
+        /// Computes the final priority for a new ticket.
         public async Task<PriorityResult> ResolvePriorityAsync(
             string? description,
             Guid customerId,
@@ -44,137 +43,62 @@ namespace CRM.Api.Services
             double urgencyConfidence,
             CancellationToken cancellationToken = default)
         {
-            // 1. Base priority from intent
-            var baseLevel = GetBasePriorityLevel(intent, intentConfidence);
+            // 1. Priority score from AI
+            var priorityScore = GetPriorityScore(urgency);
 
-            // 2. Urgency boost
-            var urgencyLevel = GetUrgencyLevel(urgency, urgencyConfidence);
-            var levelAfterUrgency = baseLevel + urgencyLevel;
+            // 2. Intent weight from config
+            var intentWeight = GetIntentWeight(intent);
 
-            // 3. Keyword rules — scan description for escalation keywords
-            var keywordBoost = ScanKeywordBoost(description ?? string.Empty);
-            var levelAfterKeywords = levelAfterUrgency + keywordBoost;
+            // 3. Tier score from customer tier
+            var tierScore = await GetTierScoreAsync(customerId, cancellationToken);
 
-            // 4. Customer rules — tier-based boost
-            var customerBoost = await GetCustomerTierBoostAsync(customerId, cancellationToken);
-            var levelAfterCustomer = levelAfterKeywords + customerBoost;
-
-            // 5. SLA rules — escalating if past deadline
-            //    (this is checked at runtime by SlaCheckerService; we include a pending-order check here)
-            var slaBoost = 0;
-            var levelAfterSla = levelAfterCustomer + slaBoost;
-
-            // Clamp to valid range [0..3]
-            var finalLevel = Math.Clamp(levelAfterSla, 0, 3);
-
-            var priorityName = LevelToPriorityName(finalLevel);
+            // Final score → priority
+            var finalScore = priorityScore + intentWeight + tierScore;
+            var priorityName = MapScoreToPriorityName(finalScore);
             var resolutionHours = await GetResolutionHoursAsync(companyId, priorityName, cancellationToken);
 
             return new PriorityResult(
                 PriorityName: priorityName,
                 SlaResolutionHours: resolutionHours,
-                BaseLevel: baseLevel,
-                IntentWeight: baseLevel,
-                UrgencyWeight: urgencyLevel,
-                KeywordBoost: keywordBoost,
-                CustomerBoost: customerBoost,
-                SlaBoost: slaBoost,
-                FinalLevel: finalLevel);
+                PriorityScore: priorityScore,
+                IntentWeight: intentWeight,
+                TierScore: tierScore,
+                FinalScore: finalScore);
         }
 
-        /// <summary>
-        /// Maps intent to a base priority level (0=Low, 1=Normal, 2=High, 3=Critical).
-        /// </summary>
-        private static int GetBasePriorityLevel(string intent, double confidence)
+        /// Priority level → score.
+        private static int GetPriorityScore(string? priority)
         {
-            // Low confidence → default to Normal
-            if (confidence < 0.50)
-                return 1;
+            if (string.IsNullOrWhiteSpace(priority))
+                return PriorityScores["normal"];
 
-            return intent.ToLowerInvariant() switch
-            {
-                "security_incident" => 3,  // Critical
-                "complaint" => 2,          // High
-                "refund_request" => 2,     // High
-                "billing_issue" => 2,      // High
-                "cancellation_request" => 2, // High
-                "technical_issue" => 1,    // Normal
-                "account_management" => 1, // Normal
-                "order_inquiry" => 1,      // Normal
-                "service_request" => 1,    // Normal
-                "feature_request" => 0,    // Low
-                "information_request" => 0, // Low
-                "other" => 1,              // Normal
-                _ => 1                     // Normal (fallback)
-            };
+            return PriorityScores.TryGetValue(priority.Trim(), out var score) ? score : PriorityScores["normal"];
         }
 
-        /// <summary>
-        /// Converts urgency string to a numeric boost (-1 to +1).
-        /// </summary>
-        private static int GetUrgencyLevel(string urgency, double confidence)
+        /// Weight for the intent (0 if unknown).
+        private int GetIntentWeight(string? intent)
         {
-            if (confidence < 0.50)
+            if (string.IsNullOrWhiteSpace(intent))
                 return 0;
 
-            return urgency.ToLowerInvariant() switch
-            {
-                "critical" => 1,
-                "high" => 1,
-                "medium" => 0,
-                "low" => -1,
-                _ => 0
-            };
+            return _intentWeights.TryGetValue(intent.Trim(), out var weight) ? weight : 0;
         }
 
-        /// <summary>
-        /// Scans description for escalation keywords and returns a numeric boost (0 or +1).
-        /// </summary>
-        private static int ScanKeywordBoost(string description)
-        {
-            if (string.IsNullOrWhiteSpace(description))
-                return 0;
-
-            var lower = description.ToLowerInvariant();
-
-            // Strong escalation keywords → +1 level
-            string[] strongKeywords =
-            {
-                "urgent", "asap", "critical", "emergency", "immediately",
-                "danger", "mendesak", "kritis", "darurat", "bocor",
-                "data leak", "security breach", "keamanan"
-            };
-
-            foreach (var keyword in strongKeywords)
-            {
-                if (lower.Contains(keyword))
-                    return 1;
-            }
-
-            return 0;
-        }
-
-        /// <summary>
-        /// Looks up the customer's tier and returns a priority boost.
-        /// Gold → +1, Silver → 0, Bronze → 0.
-        /// </summary>
-        private async Task<int> GetCustomerTierBoostAsync(Guid customerId, CancellationToken cancellationToken)
+        /// Tier score: min((Level - 1) × 5, 20).
+        private async Task<int> GetTierScoreAsync(Guid customerId, CancellationToken cancellationToken)
         {
             try
             {
-                var tierName = await _db.ProfileTiers
+                var level = await _db.ProfileTiers
                     .AsNoTracking()
                     .Where(pt => pt.ProfileId == customerId)
-                    .Select(pt => pt.Tier!.TierName)
+                    .Select(pt => (int?)pt.Tier!.Level)
                     .FirstOrDefaultAsync(cancellationToken);
 
-                return tierName?.ToLowerInvariant() switch
-                {
-                    "gold" => 1,
-                    "silver" => 0,
-                    "bronze" => 0,
-                    _ => 0
-                };
+                if (!level.HasValue || level.Value <= 1)
+                    return 0;
+
+                return Math.Min((level.Value - 1) * TierScoreStep, MaxTierScore);
             }
             catch
             {
@@ -182,23 +106,14 @@ namespace CRM.Api.Services
             }
         }
 
-        private static string LevelToPriorityName(int level) => level switch
+        /// Score → Low/Normal/High/Critical.
+        private static string MapScoreToPriorityName(int score) => score switch
         {
-            3 => "Critical",
-            2 => "High",
-            1 => "Normal",
-            0 => "Low",
-            _ => "Normal"
+            >= 100 => "Critical",
+            >= 70 => "High",
+            >= 40 => "Normal",
+            _ => "Low"
         };
-
-        // public static int GetSlaDays(string priorityName) => priorityName switch
-        // {
-        //     "Critical" => 1,
-        //     "High" => 2,
-        //     "Normal" => 3,
-        //     "Low" => 4,
-        //     _ => 3
-        // };
 
         private static readonly Dictionary<string, int> FallbackResolutionHours = new()
         {
@@ -207,6 +122,7 @@ namespace CRM.Api.Services
             ["Normal"] = 72,
             ["Low"] = 96,
         };
+
         public async Task<bool> IsSlaEnabledAsync(int companyId, CancellationToken cancellationToken = default)
         {
             try
@@ -268,13 +184,9 @@ namespace CRM.Api.Services
         public readonly record struct PriorityResult(
             string PriorityName,
             int? SlaResolutionHours,
-            // int SlaDays,
-            int BaseLevel,
+            int PriorityScore,
             int IntentWeight,
-            int UrgencyWeight,
-            int KeywordBoost,
-            int CustomerBoost,
-            int SlaBoost,
-            int FinalLevel);
+            int TierScore,
+            int FinalScore);
     }
 }
