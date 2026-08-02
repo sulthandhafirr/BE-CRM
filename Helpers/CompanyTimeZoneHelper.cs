@@ -20,28 +20,89 @@ namespace CRM.Api.Services
             [DayOfWeek.Sunday] = "Sun",
         };
 
-        public static DateTime ConvertToLocal(DateTime utcDateTime, string? timezoneLabel)
+        private static TimeZoneInfo ResolveTimeZone(string? timezoneLabel)
         {
             var ianaId = TimezoneToIana.GetValueOrDefault(timezoneLabel ?? "", "Asia/Jakarta");
-            var tz = TimeZoneInfo.FindSystemTimeZoneById(ianaId);
+            return TimeZoneInfo.FindSystemTimeZoneById(ianaId);
+        }
+
+        public static DateTime ConvertToLocal(DateTime utcDateTime, string? timezoneLabel)
+        {
+            var tz = ResolveTimeZone(timezoneLabel);
             return TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc), tz);
         }
 
-        public static DateTime AdjustForWorkingDays(DateTime utcDeadline, string[]? workingDays, string? timezoneLabel)
+        private static TimeSpan? ParseTimeOfDay(string? value)
         {
-            if (workingDays is null || workingDays.Length == 0)
-                return utcDeadline;
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            if (TimeSpan.TryParse(value, out var ts)) return ts; // handles "09:00"
+            if (DateTime.TryParseExact(value, "hh:mm tt", null,
+                    System.Globalization.DateTimeStyles.None, out var dt))
+                return dt.TimeOfDay; // handles "09:00 AM"
+            return null;
+        }
 
-            var adjusted = utcDeadline;
+        private static bool IsWorkingDay(DateTime localDate, string[] workingDays) =>
+            workingDays.Contains(DayOfWeekToCode[localDate.DayOfWeek]);
+
+        public static DateTime ComputeSlaDeadline(
+            DateTime createdUtc,
+            double resolutionHours,
+            string[]? workingDays,
+            string? workingHoursStart,
+            string? workingHoursEnd,
+            string? timezoneLabel)
+        {
+            var start = ParseTimeOfDay(workingHoursStart);
+            var end = ParseTimeOfDay(workingHoursEnd);
+
+            if (workingDays is null || workingDays.Length == 0 || start is null || end is null || end <= start)
+                return createdUtc.AddHours(resolutionHours); // fallback no valid config
+
+            var tz = ResolveTimeZone(timezoneLabel);
+            var localCreated = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(createdUtc, DateTimeKind.Utc), tz);
+
+            var cursor = localCreated;
             for (int i = 0; i < 8; i++)
             {
-                var localDay = ConvertToLocal(adjusted, timezoneLabel).DayOfWeek;
-                var dayCode = DayOfWeekToCode[localDay];
-                if (workingDays.Contains(dayCode))
-                    return adjusted;
-                adjusted = adjusted.AddDays(1);
+                if (!IsWorkingDay(cursor.Date, workingDays))
+                {
+                    cursor = cursor.Date.AddDays(1) + start.Value;
+                    continue;
+                }
+
+                var dayStart = cursor.Date + start.Value;
+                var dayEnd = cursor.Date + end.Value;
+
+                if (cursor < dayStart) { cursor = dayStart; break; }
+                if (cursor >= dayEnd) { cursor = cursor.Date.AddDays(1) + start.Value; continue; }
+                break; // already inside working hours
             }
-            return adjusted;
+
+            var remaining = resolutionHours;
+            for (int i = 0; i < 3650; i++)
+            {
+                if (!IsWorkingDay(cursor.Date, workingDays))
+                {
+                    cursor = cursor.Date.AddDays(1) + start.Value;
+                    continue;
+                }
+
+                var dayEnd = cursor.Date + end.Value;
+                var availableToday = (dayEnd - cursor).TotalHours;
+
+                if (remaining <= availableToday)
+                {
+                    var resultLocal = cursor.AddHours(remaining);
+                    return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(resultLocal, DateTimeKind.Unspecified), tz);
+                }
+
+                remaining -= availableToday;
+                var nextDay = cursor.Date.AddDays(1);
+                cursor = nextDay + start.Value;
+            }
+
+            return createdUtc.AddHours(resolutionHours);
         }
     }
 }

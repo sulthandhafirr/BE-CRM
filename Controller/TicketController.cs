@@ -610,14 +610,17 @@ namespace CRM.Api.Controllers
                     .AsNoTracking()
                     .FirstOrDefaultAsync(p => p.PriorityName == "Normal");
 
-            var slaDeadline = priorityResult.SlaResolutionHours.HasValue
-                ? DateTime.UtcNow.AddHours(priorityResult.SlaResolutionHours.Value)
-                : (DateTime?)null;
-
-            if (slaDeadline.HasValue)
+            DateTime? slaDeadline = null;
+            if (priorityResult.SlaResolutionHours.HasValue)
             {
                 var company = await _db.Companies.AsNoTracking().FirstOrDefaultAsync(c => c.Id == companyId.Value);
-                slaDeadline = CompanyTimeZoneHelper.AdjustForWorkingDays(slaDeadline.Value, company?.WorkingDays, company?.Timezone);
+                slaDeadline = CompanyTimeZoneHelper.ComputeSlaDeadline(
+                    DateTime.UtcNow,
+                    priorityResult.SlaResolutionHours.Value,
+                    company?.WorkingDays,
+                    company?.WorkingHoursStart,
+                    company?.WorkingHoursEnd,
+                    company?.Timezone);
             }
 
             var priorityId = priority?.Id ?? 2;
