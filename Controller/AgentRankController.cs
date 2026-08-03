@@ -63,6 +63,23 @@ namespace CRM.Api.Controllers
                 .Where(rule => !string.IsNullOrWhiteSpace(rule.Priority))
                 .ToDictionary(rule => rule.Priority, rule => rule, StringComparer.OrdinalIgnoreCase);
 
+            var currentWorkingCounts = await _db.Tickets
+                .AsNoTracking()
+                .Where(t => t.AgentId != null
+                    && t.Customer!.CompanyId == companyId
+                    && t.Status != "Solved"
+                    && t.Status != "Resolved")
+                .GroupBy(t => new { t.AgentId, AgentName = t.Agent!.Name })
+                .Select(g => new
+                {
+                    AgentId = g.Key.AgentId!.Value,
+                    g.Key.AgentName,
+                    CurrentWorkingTickets = g.Count()
+                })
+                .ToListAsync();
+
+            var currentWorkingMap = currentWorkingCounts.ToDictionary(x => x.AgentId, x => x.CurrentWorkingTickets);
+
             // only consider tickets that have an agent assigned
             var tickets = await _db.Tickets
                 .AsNoTracking()
@@ -170,11 +187,16 @@ namespace CRM.Api.Controllers
                     ? reasons.OrderByDescending(r => r.Value).First().Key
                     : "consistentPerformance";
 
+                var currentWorkingTickets = currentWorkingMap.TryGetValue(g.Key.AgentId!.Value, out var workingCount)
+                    ? workingCount
+                    : 0;
+
                 return new
                 {
                     agentId = g.Key.AgentId,
                     agentName = g.Key.AgentName,
                     totalTickets = agentTickets.Count,
+                    currentWorkingTickets,
                     slaBreachedCount = agentTickets.Count(t => t.SlaBreached),
                     avgResponseTimeSec = agentTickets
                         .Where(t => t.ResponseTimeSec.HasValue)
