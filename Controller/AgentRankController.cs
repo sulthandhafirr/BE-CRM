@@ -1,8 +1,10 @@
+using System.Security.Claims;
+using System.Text.Json;
+using CRM.Api.Data;
+using CRM.Api.Models;
+using CRM.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using CRM.Api.Data;
-using CRM.Api.Services;
-using System.Security.Claims;
 
 namespace CRM.Api.Controllers
 {
@@ -12,6 +14,10 @@ namespace CRM.Api.Controllers
     {
         private readonly AppDbContext _db;
         private readonly PriorityEngineService _priorityEngineService;
+        private static readonly JsonSerializerOptions SlaJsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true
+        };
 
 
         public AgentRankController(AppDbContext db, RoleService roleService, PriorityEngineService priorityEngineService) : base(roleService)
@@ -42,6 +48,20 @@ namespace CRM.Api.Controllers
             {
                 return Ok(new { slaDisabled = true, message = "SLA monitoring is disabled for this company." });
             }
+
+            var company = await _db.Companies
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == companyId);
+
+            if (company is null)
+            {
+                return Unauthorized("User is not associated with a company.");
+            }
+
+            var slaConfig = ParseSlaConfig(company.SlaConfig);
+            var slaRulesByPriority = slaConfig.Rules
+                .Where(rule => !string.IsNullOrWhiteSpace(rule.Priority))
+                .ToDictionary(rule => rule.Priority, rule => rule, StringComparer.OrdinalIgnoreCase);
 
             // only consider tickets that have an agent assigned
             var tickets = await _db.Tickets
@@ -81,82 +101,62 @@ namespace CRM.Api.Controllers
                 var scores = agentTickets.Select(t =>
                 {
                     double score = 100.0;
+                    var resolutionTargetHours = GetResolutionTargetHours(t.PriorityName, slaRulesByPriority);
 
-                    // Response time penalty (ideal < 1hr = 3600sec, max -30pts)
+                    // Response time penalty only applies after the fixed one-hour target.
                     if (t.ResponseTimeSec.HasValue)
                     {
                         double responseHours = t.ResponseTimeSec.Value / 3600.0;
-                        double responsePenalty = Math.Min(responseHours / 1.0 * 10, 30);
-                        score -= responsePenalty;
-                        totalResponsePenalty += responsePenalty;
+                        double responseExcessHours = Math.Max(0, responseHours - 1.0);
+                        if (responseExcessHours > 0)
+                        {
+                            double responsePenalty = Math.Min(Math.Log10(1 + responseExcessHours * 1.5) * 40, 35);
+                            score -= responsePenalty;
+                            totalResponsePenalty += responsePenalty;
+                        }
                     }
                     // else if (t.SlaBreached)
                     // {
                     //     score -= 30; // no response recorded = max penalty
                     // }
 
-                    // Resolution time penalty relative to SLA (max -30pts)
-                    // if (t.ResolutionTimeSec.HasValue)
-                    // {
-                    //     double slaHours = t.PriorityName switch
-                    //     {
-                    //         "Critical" => 24,
-                    //         "High" => 48,
-                    //         "Normal" => 72,
-                    //         "Low" => 96,
-                    //         _ => 72
-                    //     };
-                    //     double resolutionHours = t.ResolutionTimeSec.Value / 3600.0;
-                    //     double resolutionRatio = resolutionHours / slaHours;
-                    //     double resolutionPenalty = Math.Min(resolutionRatio * 15, 30);
-                    //     score -= resolutionPenalty;
-                    //     totalResolutionPenalty += resolutionPenalty;
-                    // }
-
-                    if (t.ResolutionTimeSec.HasValue && t.SlaDeadline.HasValue)
+                    // Resolution time penalty only applies after the configured SLA target.
+                    if (t.ResolutionTimeSec.HasValue && resolutionTargetHours > 0)
                     {
-                        double slaHours = (t.SlaDeadline.Value - t.CreatedAt).TotalHours;
-                        if (slaHours > 0)
+                        double resolutionHours = t.ResolutionTimeSec.Value / 3600.0;
+                        double resolutionExcessRatio = Math.Max(0, resolutionHours / resolutionTargetHours - 1);
+                        if (resolutionExcessRatio > 0)
                         {
-                            double resolutionHours = t.ResolutionTimeSec.Value / 3600.0;
-                            double resolutionRatio = resolutionHours / slaHours;
-                            double resolutionPenalty = Math.Min(resolutionRatio * 15, 30);
+                            double resolutionPenalty = Math.Min(Math.Log10(1 + resolutionExcessRatio) * 40, 40);
                             score -= resolutionPenalty;
                             totalResolutionPenalty += resolutionPenalty;
                         }
                     }
-                    // else if (t.SlaBreached)
-                    // {
-                    //     score -= 30; // unresolved = max penalty
-                    // }
 
-                    // 
                     if (t.SlaBreached)
                     {
-                        score -= 30;
-                        totalBreachPenalty += 30;
+                        score -= 35;
+                        totalBreachPenalty += 35;
                     }
 
-                    // Priority
-                    double priorityWeight = t.PriorityName switch
+                    double priorityBonus = t.PriorityName switch
                     {
-                        "Critical" => 1.1,
-                        "High" => 1.05,
-                        "Normal" => 1.0,
-                        "Low" => 1.0,
-                        _ => 1.0
+                        "Critical" => 6,
+                        "High" => 4,
+                        "Normal" => 2,
+                        "Low" => 1,
+                        _ => 0
                     };
 
-                    // Customer tier
-                    double tierWeight = t.TierName switch
+                    double tierBonus = t.TierName switch
                     {
-                        "Gold" => 1.1,
-                        "Silver" => 1.05,
-                        "Bronze" => 1.0,
-                        _ => 1.0
+                        "Gold" => 4,
+                        "Silver" => 2,
+                        "Bronze" => 1,
+                        _ => 0
                     };
 
-                    score = score * priorityWeight * tierWeight;
+                    score += priorityBonus + tierBonus;
                     return Math.Max(0, Math.Min(100, score));
                 }).ToList();
 
@@ -186,7 +186,7 @@ namespace CRM.Api.Controllers
                         .Select(t => (double?)t.ResolutionTimeSec!.Value)
                         .DefaultIfEmpty(null)
                         .Average(),
-                    avgScore = Math.Round(scores.Average(), 2),
+                    avgScore = Math.Round(Math.Max(0, scores.Average() - Math.Min(6.0, 6.0 / Math.Sqrt(agentTickets.Count))), 2),
                     slaBreachRate = agentTickets.Count > 0
                         ? Math.Round((double)agentTickets.Count(t => t.SlaBreached) / agentTickets.Count * 100, 1)
                         : 0,
@@ -218,6 +218,49 @@ namespace CRM.Api.Controllers
                 totalAgents = rankings.Count,
                 agent = myEntry
             });
+        }
+
+        private static SlaRulesConfigDto ParseSlaConfig(string? json)
+        {
+            try
+            {
+                var config = string.IsNullOrWhiteSpace(json)
+                    ? new SlaRulesConfigDto()
+                    : JsonSerializer.Deserialize<SlaRulesConfigDto>(json, SlaJsonOptions) ?? new SlaRulesConfigDto();
+
+                if (config.Rules.Count == 0)
+                {
+                    config.Rules = GetDefaultSlaRules();
+                }
+
+                return config;
+            }
+            catch
+            {
+                return new SlaRulesConfigDto
+                {
+                    EnableSlaMonitoring = true,
+                    Rules = GetDefaultSlaRules()
+                };
+            }
+        }
+
+        private static List<SlaRuleItem> GetDefaultSlaRules()
+        {
+            return new List<SlaRuleItem>
+            {
+                new() { Priority = "Critical", FirstResponseHours = 1, ResolutionHours = 24 },
+                new() { Priority = "High", FirstResponseHours = 2, ResolutionHours = 48 },
+                new() { Priority = "Normal", FirstResponseHours = 8, ResolutionHours = 72 },
+                new() { Priority = "Low", FirstResponseHours = 24, ResolutionHours = 96 },
+            };
+        }
+
+        private static double GetResolutionTargetHours(string? priorityName, IReadOnlyDictionary<string, SlaRuleItem> rulesByPriority)
+        {
+            return rulesByPriority.TryGetValue(priorityName ?? string.Empty, out var rule)
+                ? rule.ResolutionHours
+                : 0;
         }
     }
 }
