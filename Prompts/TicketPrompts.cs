@@ -11,9 +11,15 @@ namespace CRM.Api.Prompts
         public const string Summary = """
             Summarize the following customer support conversation concisely in 2-3 sentences.
             Include the main issue discussed and any key updates.
+            LANGUAGE:
             Detect the language used across the ticket subject, description, and conversation/comments
-            below, and respond in that language. If they use different languages, prioritize the
-            language used most recently in the conversation/comments.
+            below, and respond in that language. Only consider text actually written by the customer
+            or agent — ignore automated/system-generated entries (e.g. status-change logs, notification
+            templates) when detecting language, since these may be in a fixed system language that does
+            not reflect what the participants are actually writing in. If subject, description, and
+            conversation/comments use different languages, prioritize the language used most recently
+            in a genuine (non-automated) conversation/comment entry; if the conversation/comments
+            contain no genuine entries, fall back to the language of the description.
             REQUESTER ROLE:
             This summary is requested by a user with the role: {4}
             Adjust the summary to that audience:
@@ -29,6 +35,16 @@ namespace CRM.Api.Prompts
             Description: {3}
             Conversation:
             {2}
+            EMPTY CONVERSATION:
+            If the conversation above is empty (no messages exchanged yet), do NOT make the
+            summary consist only of a note like "No messages yet" or "Our team will respond
+            shortly". Instead, build the summary from the ticket description above: restate
+            the customer's issue in your own words, state that no reply has been sent yet,
+            mention the current status ({1}), and close with the next step for the team
+            (e.g. respond to the customer). Keep it 2-3 sentences as usual.
+            Remember: respond ONLY in the language you detected above from the subject, description,
+            and genuine conversation/comment text (not the language of these instructions, and not any
+            automated/system-generated text).
             Summary:
             """;
         // {0} = ticket id, {1} = ticket subject, {2} = conversation history,
@@ -67,6 +83,8 @@ namespace CRM.Api.Prompts
             Company: {4}
             Conversation History:
             {2}
+            Remember: respond ONLY in the language you detected above from the subject, description,
+            and conversation/comments (not the language of these instructions).
             Draft Response:
             """;
     }

@@ -47,9 +47,12 @@ namespace CRM.Api.Controllers
                 return NotFound(new { success = false, message = "Ticket not found" });
 
             var comments = ticket.Comments?.ToList() ?? new List<TicketComment>();
+            var role = await GetCurrentUserRole();
+            var isStaff = role is "admin" or "cs_agent" or "technician";
 
-            // No messages — return a short status message without calling AI
-            if (comments.Count == 0)
+            // No messages — customers get a short status message, but staff still get a
+            // real AI summary built from the ticket description.
+            if (comments.Count == 0 && !isStaff)
             {
                 var isResolved = ticket.Status?.ToLower() is "solved" or "resolved" or "closed";
                 var msg = isResolved
@@ -62,7 +65,6 @@ namespace CRM.Api.Controllers
                 comments.Select(c =>
                     $"[{c.CreatedAt?.ToString("dd MMMM yyyy, HH:mm")}] {c.Sender?.Name ?? "User"}: {c.Message}"));
 
-            var role = await GetCurrentUserRole();
             var prompt = string.Format(TicketPrompts.Summary, ticket.Subject ?? "", ticket.Status ?? "", historyText, ticket.Description ?? "", role ?? "");
 
             var result = await CallDeepSeek(prompt);
