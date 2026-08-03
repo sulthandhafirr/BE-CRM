@@ -79,35 +79,41 @@ namespace CRM.Api.Services
 
             var ticketMap = unassignedTickets.ToDictionary(t => t.Id);
 
-            static double CalcEstimatedImpact(string? priority, string? tier)
+            static double CalcEstimatedImpact(string? priority, string? tier, double ticketAgeHours, int currentWorkload)
             {
-                double score = 65.0; // assume base score
+                double score = 100.0;
 
-                double priorityWeight = priority switch
+                double priorityBonus = priority switch
                 {
-                    "Critical" => 1.1,
-                    "High" => 1.05,
-                    "Normal" => 1.0,
-                    "Low" => 1.0,
-                    _ => 1.0
+                    "Critical" => 6,
+                    "High" => 4,
+                    "Normal" => 2,
+                    "Low" => 1,
+                    _ => 0
                 };
 
-                double tierWeight = tier switch
+                double tierBonus = tier switch
                 {
-                    "Gold" => 1.1,
-                    "Silver" => 1.05,
-                    "Bronze" => 1.0,
-                    _ => 1.0
+                    "Gold" => 4,
+                    "Silver" => 2,
+                    "Bronze" => 1,
+                    _ => 0
                 };
 
-                return Math.Round(Math.Min(100, score * priorityWeight * tierWeight), 2); // cap at 100, 2 decimal places
+                var agePenalty = Math.Min(Math.Log10(1 + Math.Max(0, ticketAgeHours)) * 8, 12);
+                var workloadPenalty = Math.Min(currentWorkload * 1.5, 15);
+
+                score += priorityBonus + tierBonus - agePenalty - workloadPenalty;
+                return Math.Round(Math.Max(0, Math.Min(100, score)), 2);
             }
 
             return result.Recommendations.Select(r =>
             {
                 var estimatedImpact = CalcEstimatedImpact(
                     ticketMap[r.TicketId].PriorityName,
-                    ticketMap[r.TicketId].TierName
+                    ticketMap[r.TicketId].TierName,
+                    (DateTime.UtcNow - ticketMap[r.TicketId].CreatedAt).TotalHours,
+                    currentWorkload
                 );
                 var blended = (r.MatchScore * 0.5) + (estimatedImpact * 0.5);
 
