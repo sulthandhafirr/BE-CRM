@@ -57,6 +57,22 @@ namespace CRM.Api.Services
                         if (ticket.Technician is not null)
                             recipients.Add(ticket.Technician);
 
+                        if (ticket.Customer is not null)
+                        {
+                            await notificationService.CreateAsync(
+                                ticket.Customer.Id,
+                                $"Your ticket #{ticket.Id} '{ticket.Subject}' is taking longer than expected to resolve. Our team is on it.");
+
+                            if (!string.IsNullOrEmpty(ticket.Customer.Email))
+                            {
+                                _ = emailService.SendSlaBreachedCustomerAsync(
+                                    ticket.Customer.Email,
+                                    ticket.Customer.Name ?? "there",
+                                    ticket.Subject ?? "Ticket",
+                                    ticket.Id);
+                            }
+                        }
+
                         foreach (var recipient in recipients.DistinctBy(r => r.Id))
                         {
                             await notificationService.CreateAsync(

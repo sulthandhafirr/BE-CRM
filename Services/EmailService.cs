@@ -126,5 +126,13 @@ namespace CRM.Api.Services
                     <p>Please review and take action soon to avoid an SLA breach.</p>
                     <p>Thank you.</p>"
             );
+        public Task SendSlaBreachedCustomerAsync(string toEmail, string toName, string ticketSubject, long ticketId)
+            => SendAsync(
+                toEmail, toName,
+                "Update on Your Ticket",
+                $@"<p>Hi <b>{toName}</b>,</p>
+                    <p>We wanted to let you know that your ticket <b>'{ticketSubject}'</b> <i>(#{ticketId})</i> is taking a bit longer than expected to resolve.</p>
+                    <p>Our team is actively working on it and will get back to you as soon as possible. Thank you for your patience.</p>"
+            );
     }
 }
