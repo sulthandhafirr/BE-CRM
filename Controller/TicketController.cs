@@ -341,6 +341,8 @@ namespace CRM.Api.Controllers
             var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "cs_agent" && role != "admin") return Forbid();
 
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
             var ticket = await _db.Tickets
                 .Include(t => t.Customer)
                 .FirstOrDefaultAsync(t => t.Id == id && t.Customer!.CompanyId == companyId);
@@ -414,6 +416,19 @@ namespace CRM.Api.Controllers
                     ticket.IntentId = intent.Id;
             }
 
+            // Update billing
+            if (request.IsBillable.HasValue || request.BillAmount.HasValue)
+            {
+                if (role == "cs_agent" && ticket.AgentId != userId)
+                    return Forbid();
+
+                if (request.IsBillable.HasValue)
+                    ticket.IsBillable = request.IsBillable.Value;
+
+                if (request.BillAmount.HasValue)
+                    ticket.BillAmount = request.BillAmount.Value;
+            }
+
             // Count ResolutionTime if ticket status change to "Solved"
             if (request.Status == "Solved" && ticket.ResolutionTimeSec == null)
             {
@@ -478,6 +493,8 @@ namespace CRM.Api.Controllers
                 technician = ticket.Technician != null ? ticket.Technician.Name : null,
                 resolvedAt = ticket.ResolvedAt,
                 resolved_at = ticket.ResolvedAt,
+                isBillable = ticket.IsBillable,
+                billAmount = ticket.BillAmount,
             });
         }
 
@@ -1131,36 +1148,42 @@ namespace CRM.Api.Controllers
 
             [JsonPropertyName("intent")]
             public string? Intent { get; set; }
-        }
 
-        public class AttachmentInfo
-        {
-            public string? FilePath { get; set; }
-            public string? FileName { get; set; }
-            public long FileSize { get; set; }
-        }
+            [JsonPropertyName("isBillable")]
+            public bool? IsBillable { get; set; }
 
-        public class CreateTicketRequest
-        {
-            public string? Subject { get; set; }
-            public string? Description { get; set; }
-            public int? UserPriorityId { get; set; }
+            [JsonPropertyName("billAmount")]
+            public decimal? BillAmount { get; set; }
         }
+    }
 
-        public class FileRequest
-        {
-            public string? FileName { get; set; }
-        }
+    public class AttachmentInfo
+    {
+        public string? FilePath { get; set; }
+        public string? FileName { get; set; }
+        public long FileSize { get; set; }
+    }
 
-        public class UploadUrlRequest
-        {
-            public long TicketId { get; set; }
-            public List<FileRequest> Files { get; set; } = new();
-        }
+    public class CreateTicketRequest
+    {
+        public string? Subject { get; set; }
+        public string? Description { get; set; }
+        public int? UserPriorityId { get; set; }
+    }
 
-        public class CreateTicketCommentRequest
-        {
-            public string? Message { get; set; }
-        }
+    public class FileRequest
+    {
+        public string? FileName { get; set; }
+    }
+
+    public class UploadUrlRequest
+    {
+        public long TicketId { get; set; }
+        public List<FileRequest> Files { get; set; } = new();
+    }
+
+    public class CreateTicketCommentRequest
+    {
+        public string? Message { get; set; }
     }
 }

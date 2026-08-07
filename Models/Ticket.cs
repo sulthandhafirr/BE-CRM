@@ -96,12 +96,18 @@ namespace CRM.Api.Models
 
         [Column("sla_breached_notified")]
         public bool SlaBreachedNotified { get; set; }
+
+        [Column("is_billable")]
+        public bool IsBillable { get; set; }
+
+        [Column("bill_amount")]
+        public decimal? BillAmount { get; set; }
         // Navigation properties
         // public Profile? Customer { get; set; }
         // public Profile? Agent { get; set; }
         // public PriorityList? Priority { get; set; }
         public ICollection<TicketAttachment> Attachments { get; set; } = new List<TicketAttachment>();
         public ICollection<TicketComment> Comments { get; set; } = new List<TicketComment>();
-
+        public ICollection<Payment> Payments { get; set; } = new List<Payment>();
     }
 }
