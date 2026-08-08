@@ -214,6 +214,19 @@ namespace CRM.Api.Controllers
                     urgency = t.Urgency,
                     urgencyConfidence = t.UrgencyConfidence,
                     slaDeadline = t.SlaDeadline,
+                    isBillable = t.IsBillable,
+                    billAmount = t.BillAmount,
+                    billItems = t.BillItems,
+                    paymentStatus = _db.Payments
+                        .Where(p => p.TicketId == t.Id)
+                        .OrderByDescending(p => p.CreatedAt)
+                        .Select(p => p.Status)
+                        .FirstOrDefault(),
+                    paymentDueDate = _db.Payments
+                        .Where(p => p.TicketId == t.Id)
+                        .OrderByDescending(p => p.CreatedAt)
+                        .Select(p => p.DueDate)
+                        .FirstOrDefault(),
                     attachments = t.Attachments.Select(a => new
                     {
                         id = a.Id,
@@ -417,16 +430,27 @@ namespace CRM.Api.Controllers
             }
 
             // Update billing
-            if (request.IsBillable.HasValue || request.BillAmount.HasValue)
+            if (request.IsBillable.HasValue || request.BillItems != null)
             {
                 if (role == "cs_agent" && ticket.AgentId != userId)
                     return Forbid();
 
+                var hasPendingPayment = await _db.Payments
+                    .AnyAsync(p => p.TicketId == ticket.Id && p.Status == "pending");
+                if (hasPendingPayment)
+                    return Conflict(new { message = "Cannot edit billing while a payment is in progress." });
+
                 if (request.IsBillable.HasValue)
                     ticket.IsBillable = request.IsBillable.Value;
 
-                if (request.BillAmount.HasValue)
-                    ticket.BillAmount = request.BillAmount.Value;
+                if (request.BillItems != null)
+                {
+                    ticket.BillItems = JsonSerializer.Serialize(request.BillItems, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                    });
+                    ticket.BillAmount = request.BillItems.Sum(i => i.Amount);
+                }
             }
 
             // Count ResolutionTime if ticket status change to "Solved"
@@ -1154,6 +1178,8 @@ namespace CRM.Api.Controllers
 
             [JsonPropertyName("billAmount")]
             public decimal? BillAmount { get; set; }
+            [JsonPropertyName("billItems")]
+            public List<BillItemRequest>? BillItems { get; set; }
         }
     }
 
@@ -1185,5 +1211,10 @@ namespace CRM.Api.Controllers
     public class CreateTicketCommentRequest
     {
         public string? Message { get; set; }
+    }
+    public class BillItemRequest
+    {
+        public string? Name { get; set; }
+        public decimal Amount { get; set; }
     }
 }

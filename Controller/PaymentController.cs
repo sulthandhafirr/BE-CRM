@@ -46,9 +46,16 @@ namespace CRM.Api.Controllers
             if (alreadyPaid)
                 return Conflict(new { message = "This ticket has already been paid." });
 
+            List<BillItemRequest>? items = null;
+            if (!string.IsNullOrEmpty(ticket.BillItems))
+                items = JsonSerializer.Deserialize<List<BillItemRequest>>(ticket.BillItems, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
             try
             {
-                var (token, redirectUrl) = await _paymentService.CreatePaymentAsync(ticketId, ticket.BillAmount.Value);
+                var (token, redirectUrl) = await _paymentService.CreatePaymentAsync(ticketId, ticket.BillAmount.Value, items);
                 return Ok(new { token, redirectUrl });
             }
             catch (InvalidOperationException ex)

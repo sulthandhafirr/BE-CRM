@@ -39,5 +39,8 @@ namespace CRM.Api.Models
         
         [Column("due_date")]
         public DateTime? DueDate { get; set; }
+
+        [Column("snap_token")]
+        public string? SnapToken { get; set; }
     }
 }

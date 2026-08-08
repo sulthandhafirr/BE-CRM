@@ -102,6 +102,10 @@ namespace CRM.Api.Models
 
         [Column("bill_amount")]
         public decimal? BillAmount { get; set; }
+
+        [Column("bill_items", TypeName = "jsonb")]
+        public string? BillItems { get; set; }
+        
         // Navigation properties
         // public Profile? Customer { get; set; }
         // public Profile? Agent { get; set; }
