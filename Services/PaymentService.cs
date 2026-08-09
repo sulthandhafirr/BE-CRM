@@ -51,7 +51,7 @@ namespace CRM.Api.Services
             }
 
             var authHeader = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_serverKey}:"));
-            var request = new HttpRequestMessage(HttpMethod.Post, "https://app.sandbox.midtrans.com/snap/v1/transactions")
+            var request = new HttpRequestMessage(HttpMethod.Post, "https://app.sandbox.midtrans.com/snap/v1/transactions") // still sandbox
             {
                 Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json")
             };
