@@ -15,13 +15,17 @@ namespace CRM.Api.Controllers
         private readonly AppDbContext _db;
         private readonly PaymentService _paymentService;
         private readonly IConfiguration _config;
+        private readonly EmailService _emailService;
+        private readonly NotificationService _notificationService;
 
-        public PaymentsController(RoleService roleService, AppDbContext db, PaymentService paymentService, IConfiguration config)
-    : base(roleService)
+        public PaymentsController(RoleService roleService, AppDbContext db, PaymentService paymentService, IConfiguration config, EmailService emailService, NotificationService notificationService)
+             : base(roleService)
         {
             _db = db;
             _paymentService = paymentService;
             _config = config;
+            _emailService = emailService;
+            _notificationService = notificationService;
         }
 
         // POST api/payments/ticket/{ticketId}
@@ -86,7 +90,12 @@ namespace CRM.Api.Controllers
             if (computedSignature != signatureKey)
                 return Unauthorized();
 
-            var payment = await _db.Payments.FirstOrDefaultAsync(p => p.MidtransOrderId == orderId);
+            var payment = await _db.Payments
+                .Include(p => p.Ticket)
+                    .ThenInclude(t => t!.Customer)
+                .Include(p => p.Ticket)
+                    .ThenInclude(t => t!.Agent)
+                .FirstOrDefaultAsync(p => p.MidtransOrderId == orderId);
             if (payment == null)
             {
                 return Ok();
@@ -110,6 +119,47 @@ namespace CRM.Api.Controllers
 
             payment.PaymentMethod = payload.TryGetProperty("payment_type", out var pt) ? pt.GetString() : payment.PaymentMethod;
             payment.MidtransTransactionId = payload.TryGetProperty("transaction_id", out var tid) ? tid.GetString() : payment.MidtransTransactionId;
+
+            // Email and web notification
+            if (transactionStatus == "settlement" || transactionStatus == "capture")
+            {
+                payment.Status = "paid";
+                payment.PaidAt = DateTime.UtcNow;
+
+                if (payment.Ticket?.Customer?.Email != null)
+                {
+                    List<BillItemRequest>? emailItems = null;
+                    if (!string.IsNullOrEmpty(payment.Ticket.BillItems))
+                        emailItems = JsonSerializer.Deserialize<List<BillItemRequest>>(payment.Ticket.BillItems, new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+
+                    _ = _emailService.SendPaymentSuccessAsync(
+                        payment.Ticket.Customer.Email,
+                        payment.Ticket.Customer.Name ?? "Customer",
+                        payment.Ticket.Subject ?? "Your Ticket",
+                        payment.Ticket.Id,
+                        payment.Amount,
+                        emailItems);
+                }
+
+                if (payment.Ticket?.AgentId.HasValue == true)
+                    await _notificationService.CreateAsync(
+                        payment.Ticket.AgentId.Value,
+                        $"Payment of Rp {payment.Amount:N0} received for ticket #{payment.Ticket.Id} '{payment.Ticket.Subject}'.");
+            }
+            else if (transactionStatus == "expire" || transactionStatus == "deny" || transactionStatus == "cancel")
+            {
+                payment.Status = "failed";
+
+                if (payment.Ticket?.Customer?.Email != null)
+                    _ = _emailService.SendPaymentFailedAsync(
+                        payment.Ticket.Customer.Email,
+                        payment.Ticket.Customer.Name ?? "Customer",
+                        payment.Ticket.Subject ?? "Your Ticket",
+                        payment.Ticket.Id);
+            }
 
             await _db.SaveChangesAsync();
 
