@@ -3,8 +3,8 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace CRM.Api.Models
 {
-    [Table("ticket_attachment", Schema = "public")]
-    public class TicketAttachment
+    [Table("ticket_comment", Schema = "public")]
+    public class TicketComment
     {
         [Key]
         [Column("id")]
@@ -13,20 +13,20 @@ namespace CRM.Api.Models
 
         [ForeignKey("TicketId")]
         public Ticket? Ticket { get; set; }
-        
+
         [Column("ticket_id")]
         public long TicketId { get; set; }
 
-        [Column("file_url")]
-        public string? FileUrl { get; set; }
+        [ForeignKey("SenderId")]
+        public Profile? Sender { get; set; }
 
-        [Column("file_name")]
-        public string? FileName { get; set; }
+        [Column("sender_id")]
+        public Guid? SenderId { get; set; }
 
-        [Column("file_size")]
-        public long FileSize { get; set; }
+        [Column("message")]
+        public string? Message { get; set; }
 
-        [Column("uploaded_at")]
-        public DateTime UploadedAt { get; set; }
+        [Column("created_at")]
+        public DateTime? CreatedAt { get; set; }
     }
 }

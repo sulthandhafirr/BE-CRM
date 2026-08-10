@@ -18,5 +18,10 @@ namespace CRM.Api.Controllers
             var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
             return await _roleService.GetRoleAsync(userId);
         }
+        protected async Task<(string? Role, int? CompanyId)> GetCurrentUserRoleAndCompany()
+        {
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            return await _roleService.GetRoleAndCompanyAsync(userId);
+        }
     }
 }
