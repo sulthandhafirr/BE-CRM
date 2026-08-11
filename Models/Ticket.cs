@@ -113,5 +113,6 @@ namespace CRM.Api.Models
         public ICollection<TicketAttachment> Attachments { get; set; } = new List<TicketAttachment>();
         public ICollection<TicketComment> Comments { get; set; } = new List<TicketComment>();
         public ICollection<Payment> Payments { get; set; } = new List<Payment>();
+        public TicketRating? Rating { get; set; }
     }
 }

@@ -114,6 +114,10 @@ namespace CRM.Api.Controllers
                     handler = t.Agent != null ? t.Agent.Name : "Not assigned yet",
                     createdAt = t.CreatedAt,
                     resolvedAt = t.ResolvedAt,
+                    rating = _db.TicketRatings   // ← tambahan
+                        .Where(r => r.TicketId == t.Id)
+                        .Select(r => (long?)r.Rate)
+                        .FirstOrDefault(),
                 })
                 .ToListAsync();
 
@@ -143,11 +147,7 @@ namespace CRM.Api.Controllers
                 query = query.Where(t => t.TechnicianId == userId);
 
             var tickets = await query
-                // .Include(t => t.Priority)
-                // .Include(t => t.Customer)
-                // .Where(t => t.AgentId == userId && t.Status == "Solved")
                 .OrderByDescending(t => t.ResolvedAt)
-                // .AsNoTracking()
                 .Select(t => new
                 {
                     id = t.Id,
@@ -159,7 +159,11 @@ namespace CRM.Api.Controllers
                     createdAt = t.CreatedAt,
                     resolvedAt = t.ResolvedAt,
                     responseTimeSec = t.ResponseTimeSec,
-                    resolutionTimeSec = t.ResolutionTimeSec
+                    resolutionTimeSec = t.ResolutionTimeSec,
+                    rating = _db.TicketRatings   // ← tambahan
+                        .Where(r => r.TicketId == t.Id)
+                        .Select(r => (long?)r.Rate)
+                        .FirstOrDefault(),
                 })
                 .ToListAsync();
 
@@ -334,6 +338,10 @@ namespace CRM.Api.Controllers
                     intentConfidence = t.IntentConfidence,
                     urgency = t.Urgency,
                     urgencyConfidence = t.UrgencyConfidence,
+                    rating = _db.TicketRatings
+                        .Where(r => r.TicketId == t.Id)
+                        .Select(r => (long?)r.Rate)
+                        .FirstOrDefault(),
                     attachments = t.Attachments.Select(a => new
                     {
                         id = a.Id,
@@ -1020,6 +1028,131 @@ namespace CRM.Api.Controllers
                 .ToListAsync();
 
             return Ok(comments);
+        }
+
+        // GET /api/tickets/{ticketId}/rating — ambil rating ticket (kalau sudah ada) + status boleh rating atau tidak
+        [HttpGet("{ticketId}/rating")]
+        public async Task<IActionResult> GetTicketRating(long ticketId)
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+            var ticket = await _db.Tickets
+                .Include(t => t.Customer)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == ticketId && t.Customer!.CompanyId == companyId);
+
+            if (ticket == null) return NotFound("Ticket not found");
+
+            var isAuthorized = role switch
+            {
+                "customer" => ticket.CustomerId == userId,
+                "cs_agent" => true,
+                "technician" => ticket.TechnicianId == userId,
+                "admin" => true,
+                _ => false
+            };
+            if (!isAuthorized) return Forbid();
+
+            var rating = await _db.TicketRatings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(r => r.TicketId == ticketId);
+
+            return Ok(new
+            {
+                ticketId = ticket.Id,
+                canRate = ticket.Status == "Solved" && ticket.CustomerId == userId && rating == null,
+                rate = rating?.Rate,
+                message = rating?.Message,
+                ratedAt = rating?.RatedAt,
+            });
+        }
+
+        // POST /api/tickets/{ticketId}/rating — customer submit rating (sekali saja, tidak bisa diubah)
+        [HttpPost("{ticketId}/rating")]
+        public async Task<IActionResult> SubmitTicketRating(long ticketId, [FromBody] SubmitTicketRatingRequest request)
+        {
+            var role = await GetCurrentUserRole();
+            if (role != "customer") return Forbid();
+
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+            if (request.Rate < 1 || request.Rate > 5)
+                return BadRequest(new { message = "Rate must be between 1 and 5" });
+
+            var ticket = await _db.Tickets.FirstOrDefaultAsync(t => t.Id == ticketId);
+            if (ticket == null) return NotFound("Ticket not found");
+            if (ticket.CustomerId != userId) return Forbid();
+            if (ticket.Status != "Solved") return BadRequest(new { message = "Ticket is not resolved yet" });
+
+            var alreadyRated = await _db.TicketRatings.AnyAsync(r => r.TicketId == ticketId);
+            if (alreadyRated)
+                return Conflict(new { message = "This ticket has already been rated" });
+
+            var rating = new TicketRating
+            {
+                Id = Guid.NewGuid(),
+                TicketId = ticketId,
+                Rate = request.Rate,
+                Message = string.IsNullOrWhiteSpace(request.Message) ? null : request.Message.Trim(),
+                RatedAt = DateTime.UtcNow,
+            };
+
+            _db.TicketRatings.Add(rating);
+            await _db.SaveChangesAsync();
+
+            return Ok(new
+            {
+                id = rating.Id,
+                ticketId = rating.TicketId,
+                rate = rating.Rate,
+                message = rating.Message,
+                ratedAt = rating.RatedAt,
+            });
+        }
+
+        // ── Request model, taruh di bagian "Request models" bersama request model lain ──
+        public class SubmitTicketRatingRequest
+        {
+            public int Rate { get; set; }
+            public string? Message { get; set; }
+        }
+
+        // GET /api/tickets/ratings/summary — ringkasan rating semua ticket solved (admin & cs_agent)
+        [HttpGet("ratings/summary")]
+        public async Task<IActionResult> GetRatingsSummary()
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (role != "cs_agent" && role != "admin") return Forbid();
+
+            var ratings = await _db.TicketRatings
+                .Include(r => r.Ticket)
+                    .ThenInclude(t => t!.Customer)
+                .Where(r => r.Ticket!.Customer!.CompanyId == companyId)
+                .AsNoTracking()
+                .Select(r => new { r.Rate, r.Message })
+                .ToListAsync();
+
+            var totalRatings = ratings.Count;
+            var average = totalRatings > 0 ? ratings.Average(r => r.Rate) : 0;
+            var reviewCount = ratings.Count(r => !string.IsNullOrWhiteSpace(r.Message));
+
+            var counts = new Dictionary<int, int> { { 5, 0 }, { 4, 0 }, { 3, 0 }, { 2, 0 }, { 1, 0 } };
+            foreach (var r in ratings)
+            {
+                var star = (int)r.Rate;
+                if (counts.ContainsKey(star)) counts[star]++;
+            }
+
+            return Ok(new
+            {
+                average = Math.Round(average, 1),
+                totalRatings,
+                reviewCount,
+                breakdown = counts
+                    .OrderByDescending(kv => kv.Key)
+                    .Select(kv => new { star = kv.Key, count = kv.Value }),
+            });
         }
 
         // GET /api/tickets/{id}/similar — cari tiket yang kemungkinan duplikat berdasarkan makna
