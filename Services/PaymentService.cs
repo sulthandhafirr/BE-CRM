@@ -67,6 +67,13 @@ namespace CRM.Api.Services
             var token = doc.RootElement.GetProperty("token").GetString()!;
             var redirectUrl = doc.RootElement.GetProperty("redirect_url").GetString()!;
 
+            var slaConfig = await _db.Tickets
+                .AsNoTracking()
+                .Where(t => t.Id == ticketId)
+                .Select(t => t.Customer!.Company!.SlaConfig)
+                .FirstOrDefaultAsync();
+            var paymentDueDays = CompanyService.GetPaymentDueDays(slaConfig);
+
             _db.Payments.Add(new Payment
             {
                 TicketId = ticketId,
@@ -75,7 +82,7 @@ namespace CRM.Api.Services
                 MidtransOrderId = orderId,
                 SnapToken = token,
                 CreatedAt = DateTime.UtcNow,
-                DueDate = DateTime.UtcNow.AddDays(3) // set due date for 3 days for now, later change based on company settings
+                DueDate = DateTime.UtcNow.AddDays(paymentDueDays)
             });
             await _db.SaveChangesAsync();
 

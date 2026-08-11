@@ -10,6 +10,7 @@ namespace CRM.Api.Models
         public string? WorkingHoursStart { get; set; }
         public string? WorkingHoursEnd { get; set; }
         public string? LogoUrl { get; set; }
+        public int? PaymentDueDays { get; set; }
     }
 
     public class CompanySettingsResponse
@@ -24,6 +25,7 @@ namespace CRM.Api.Models
         public string? WorkingHoursStart { get; set; }
         public string? WorkingHoursEnd { get; set; }
         public string? LogoUrl { get; set; }
+        public int PaymentDueDays { get; set; } = 3;
         public DateTime CreatedAt { get; set; }
     }
 

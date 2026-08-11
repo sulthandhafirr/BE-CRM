@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using CRM.Api.Data;
 using CRM.Api.Models;
 using Microsoft.EntityFrameworkCore;
@@ -53,6 +54,8 @@ namespace CRM.Api.Services
                 company.WorkingHoursStart = dto.WorkingHoursStart;
             if (dto.WorkingHoursEnd is not null)
                 company.WorkingHoursEnd = dto.WorkingHoursEnd;
+            if (dto.PaymentDueDays.HasValue)
+                company.SlaConfig = SetPaymentDueDays(company.SlaConfig, dto.PaymentDueDays.Value);
             // Always set logoUrl (empty string = clear, URL = set)
             company.LogoUrl = dto.LogoUrl;
 
@@ -156,7 +159,8 @@ namespace CRM.Api.Services
 
             if (company is null) return null;
 
-            company.SlaConfig = JsonSerializer.Serialize(dto, JsonOptions);
+            var paymentDueDays = GetPaymentDueDays(company.SlaConfig);
+            company.SlaConfig = SetPaymentDueDays(JsonSerializer.Serialize(dto, JsonOptions), paymentDueDays);
             await _db.SaveChangesAsync();
 
             return DeserializeSlaConfig(company.SlaConfig);
@@ -217,8 +221,37 @@ namespace CRM.Api.Services
                 WorkingHoursStart = company.WorkingHoursStart,
                 WorkingHoursEnd = company.WorkingHoursEnd,
                 LogoUrl = company.LogoUrl,
+                PaymentDueDays = GetPaymentDueDays(company.SlaConfig),
                 CreatedAt = default, // not stored in response for now
             };
+        }
+
+        public static int GetPaymentDueDays(string? slaConfig)
+        {
+            try
+            {
+                var config = JsonNode.Parse(slaConfig ?? "{}") as JsonObject;
+                var paymentDueDays = config?["paymentDueDays"]?.GetValue<int>();
+                return paymentDueDays is > 0 ? paymentDueDays.Value : 3;
+            }
+            catch
+            {
+                return 3;
+            }
+        }
+
+        private static string SetPaymentDueDays(string? slaConfig, int paymentDueDays)
+        {
+            try
+            {
+                var config = JsonNode.Parse(slaConfig ?? "{}") as JsonObject ?? new JsonObject();
+                config["paymentDueDays"] = paymentDueDays;
+                return config.ToJsonString();
+            }
+            catch
+            {
+                return JsonSerializer.Serialize(new { paymentDueDays });
+            }
         }
     }
 }
