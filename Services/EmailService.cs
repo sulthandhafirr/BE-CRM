@@ -1,6 +1,7 @@
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
+using CRM.Api.Controllers;
 // using Microsoft.Extensions.Configuration;
 
 namespace CRM.Api.Services
@@ -125,6 +126,50 @@ namespace CRM.Api.Services
                     <p>The ticket <b>'{ticketSubject}'</b> <i>(#{ticketId})</i> is approaching its SLA deadline, breaching in approximately <b>{minutesRemaining} minutes</b>.</p>
                     <p>Please review and take action soon to avoid an SLA breach.</p>
                     <p>Thank you.</p>"
+            );
+        public Task SendSlaBreachedCustomerAsync(string toEmail, string toName, string ticketSubject, long ticketId)
+            => SendAsync(
+                toEmail, toName,
+                "Update on Your Ticket",
+                $@"<p>Hi <b>{toName}</b>,</p>
+                    <p>We wanted to let you know that your ticket <b>'{ticketSubject}'</b> <i>(#{ticketId})</i> is taking a bit longer than expected to resolve.</p>
+                    <p>Our team is actively working on it and will get back to you as soon as possible. Thank you for your patience.</p>"
+            );
+        public Task SendPaymentSuccessAsync(string toEmail, string toName, string ticketSubject, long ticketId, decimal amount, List<BillItemRequest>? items)
+        {
+            var itemsHtml = "";
+            if (items != null && items.Count > 0)
+            {
+                var rows = string.Join("", items.Select(i =>
+                    $"<tr><td style='padding:6px 0;color:#374151;'>{i.Name}</td><td style='padding:6px 0;text-align:right;color:#374151;'>Rp {i.Amount:N0}</td></tr>"));
+
+                itemsHtml = $@"
+            <table style='width:100%;border-collapse:collapse;margin:12px 0;'>
+                {rows}
+                <tr style='border-top:1px solid #E5E7EB;font-weight:bold;'>
+                    <td style='padding:8px 0;'>Total</td>
+                    <td style='padding:8px 0;text-align:right;'>Rp {amount:N0}</td>
+                </tr>
+            </table>";
+            }
+
+            return SendAsync(
+                toEmail, toName,
+                "Payment Successful",
+                $@"<p>Hi <b>{toName}</b>,</p>
+            <p>We've received your payment for ticket <b>'{ticketSubject}'</b> <i>(#{ticketId})</i>.</p>
+            {itemsHtml}
+            <p>Thank you for your payment.</p>"
+            );
+        }
+
+        public Task SendPaymentFailedAsync(string toEmail, string toName, string ticketSubject, long ticketId)
+            => SendAsync(
+                toEmail, toName,
+                "Payment Unsuccessful",
+                $@"<p>Hi <b>{toName}</b>,</p>
+                    <p>Your payment for ticket <b>'{ticketSubject}'</b> <i>(#{ticketId})</i> was not successful.</p>
+                    <p>Please try again from your ticket page.</p>"
             );
     }
 }

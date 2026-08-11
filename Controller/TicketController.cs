@@ -214,6 +214,19 @@ namespace CRM.Api.Controllers
                     urgency = t.Urgency,
                     urgencyConfidence = t.UrgencyConfidence,
                     slaDeadline = t.SlaDeadline,
+                    isBillable = t.IsBillable,
+                    billAmount = t.BillAmount,
+                    billItems = t.BillItems,
+                    paymentStatus = _db.Payments
+                        .Where(p => p.TicketId == t.Id)
+                        .OrderByDescending(p => p.CreatedAt)
+                        .Select(p => p.Status)
+                        .FirstOrDefault(),
+                    paymentDueDate = _db.Payments
+                        .Where(p => p.TicketId == t.Id)
+                        .OrderByDescending(p => p.CreatedAt)
+                        .Select(p => p.DueDate)
+                        .FirstOrDefault(),
                     attachments = t.Attachments.Select(a => new
                     {
                         id = a.Id,
@@ -341,6 +354,8 @@ namespace CRM.Api.Controllers
             var (role, companyId) = await GetCurrentUserRoleAndCompany();
             if (role != "cs_agent" && role != "admin") return Forbid();
 
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
             var ticket = await _db.Tickets
                 .Include(t => t.Customer)
                 .FirstOrDefaultAsync(t => t.Id == id && t.Customer!.CompanyId == companyId);
@@ -414,6 +429,30 @@ namespace CRM.Api.Controllers
                     ticket.IntentId = intent.Id;
             }
 
+            // Update billing
+            if (request.IsBillable.HasValue || request.BillItems != null)
+            {
+                if (role == "cs_agent" && ticket.AgentId != userId)
+                    return Forbid();
+
+                var hasPendingPayment = await _db.Payments
+                    .AnyAsync(p => p.TicketId == ticket.Id && p.Status == "pending");
+                if (hasPendingPayment)
+                    return Conflict(new { message = "Cannot edit billing while a payment is in progress." });
+
+                if (request.IsBillable.HasValue)
+                    ticket.IsBillable = request.IsBillable.Value;
+
+                if (request.BillItems != null)
+                {
+                    ticket.BillItems = JsonSerializer.Serialize(request.BillItems, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                    });
+                    ticket.BillAmount = request.BillItems.Sum(i => i.Amount);
+                }
+            }
+
             // Count ResolutionTime if ticket status change to "Solved"
             if (request.Status == "Solved" && ticket.ResolutionTimeSec == null)
             {
@@ -478,6 +517,8 @@ namespace CRM.Api.Controllers
                 technician = ticket.Technician != null ? ticket.Technician.Name : null,
                 resolvedAt = ticket.ResolvedAt,
                 resolved_at = ticket.ResolvedAt,
+                isBillable = ticket.IsBillable,
+                billAmount = ticket.BillAmount,
             });
         }
 
@@ -1131,36 +1172,49 @@ namespace CRM.Api.Controllers
 
             [JsonPropertyName("intent")]
             public string? Intent { get; set; }
-        }
 
-        public class AttachmentInfo
-        {
-            public string? FilePath { get; set; }
-            public string? FileName { get; set; }
-            public long FileSize { get; set; }
-        }
+            [JsonPropertyName("isBillable")]
+            public bool? IsBillable { get; set; }
 
-        public class CreateTicketRequest
-        {
-            public string? Subject { get; set; }
-            public string? Description { get; set; }
-            public int? UserPriorityId { get; set; }
+            [JsonPropertyName("billAmount")]
+            public decimal? BillAmount { get; set; }
+            [JsonPropertyName("billItems")]
+            public List<BillItemRequest>? BillItems { get; set; }
         }
+    }
 
-        public class FileRequest
-        {
-            public string? FileName { get; set; }
-        }
+    public class AttachmentInfo
+    {
+        public string? FilePath { get; set; }
+        public string? FileName { get; set; }
+        public long FileSize { get; set; }
+    }
 
-        public class UploadUrlRequest
-        {
-            public long TicketId { get; set; }
-            public List<FileRequest> Files { get; set; } = new();
-        }
+    public class CreateTicketRequest
+    {
+        public string? Subject { get; set; }
+        public string? Description { get; set; }
+        public int? UserPriorityId { get; set; }
+    }
 
-        public class CreateTicketCommentRequest
-        {
-            public string? Message { get; set; }
-        }
+    public class FileRequest
+    {
+        public string? FileName { get; set; }
+    }
+
+    public class UploadUrlRequest
+    {
+        public long TicketId { get; set; }
+        public List<FileRequest> Files { get; set; } = new();
+    }
+
+    public class CreateTicketCommentRequest
+    {
+        public string? Message { get; set; }
+    }
+    public class BillItemRequest
+    {
+        public string? Name { get; set; }
+        public decimal Amount { get; set; }
     }
 }
