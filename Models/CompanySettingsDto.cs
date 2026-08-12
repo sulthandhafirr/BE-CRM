@@ -61,4 +61,23 @@ namespace CRM.Api.Models
         public int NotifyBeforeBreachedMinutes { get; set; } = 30;
         public List<SlaRuleItem> Rules { get; set; } = new();
     }
+
+    // ── Export Schedule Config ─────────────────────────────────────────
+
+    public class ExportScheduleConfigDto
+    {
+        /// <summary>"daily", "weekly", or "monthly".</summary>
+        public string Frequency { get; set; } = "monthly";
+        public bool Enabled { get; set; } = false;
+        /// <summary>Day of month (1-31) used when Frequency is "monthly".</summary>
+        public int DayOfMonth { get; set; } = 30;
+        /// <summary>Day of week (0=Sunday … 6=Saturday) used when Frequency is "weekly".</summary>
+        public int DayOfWeek { get; set; } = 1;
+        public string Time { get; set; } = "08:00";
+        public bool IncludeTickets { get; set; } = true;
+        public bool IncludeUsers { get; set; } = true;
+        public bool IncludeCombined { get; set; } = true;
+        public List<string> Recipients { get; set; } = new();
+        public string? LastSentDate { get; set; }
+    }
 }

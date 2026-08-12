@@ -15,7 +15,13 @@ namespace CRM.Api.Services
             _config = config;
         }
 
-        private async Task SendAsync(string toEmail, string toName, string subject, string body)
+        /// <returns>True when the email was accepted by the SMTP server, otherwise false.</returns>
+        private async Task<bool> SendAsync(
+            string toEmail,
+            string toName,
+            string subject,
+            string body,
+            List<(string FileName, byte[] Content, string MimeType)>? attachments = null)
         {
             try
             {
@@ -29,17 +35,31 @@ namespace CRM.Api.Services
                 email.From.Add(new MailboxAddress(sender, username));
                 email.To.Add(new MailboxAddress(toName, toEmail));
                 email.Subject = subject;
-                email.Body = new TextPart("html") { Text = body };
+
+                var builder = new BodyBuilder { HtmlBody = body };
+                if (attachments is { Count: > 0 })
+                {
+                    foreach (var attachment in attachments)
+                    {
+                        builder.Attachments.Add(
+                            attachment.FileName,
+                            attachment.Content,
+                            ContentType.Parse(attachment.MimeType));
+                    }
+                }
+                email.Body = builder.ToMessageBody();
 
                 using var smtp = new SmtpClient();
                 await smtp.ConnectAsync(host, int.Parse(port), SecureSocketOptions.StartTls);
                 await smtp.AuthenticateAsync(username, password);
                 await smtp.SendAsync(email);
                 await smtp.DisconnectAsync(true);
+                return true;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[EmailService] Failed to send email to {toEmail}: {ex.Message}");
+                return false;
             }
         }
 
@@ -171,5 +191,37 @@ namespace CRM.Api.Services
                     <p>Your payment for ticket <b>'{ticketSubject}'</b> <i>(#{ticketId})</i> was not successful.</p>
                     <p>Please try again from your ticket page.</p>"
             );
+
+        /// <summary>
+        /// Sends a scheduled data export report with Excel file(s) attached.
+        /// </summary>
+        /// <returns>True when the email was accepted by the SMTP server, otherwise false.</returns>
+        public Task<bool> SendExportReportAsync(
+            string toEmail,
+            string toName,
+            string companyName,
+            string reportLabel,
+            string period,
+            List<(string FileName, byte[] Content)> attachments)
+        {
+            const string spreadsheetMime =
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+            var fileList = string.Join(
+                "", attachments.Select(a => $"<li><b>{a.FileName}</b> ({a.Content.Length / 1024} KB)</li>"));
+
+            return SendAsync(
+                toEmail,
+                toName,
+                $"{char.ToUpperInvariant(reportLabel[0]) + reportLabel[1..]} Data Export Report",
+                $@"<p>Hi <b>{toName}</b>,</p>
+                    <p>Here is the {reportLabel} data export for <b>{companyName}</b> covering <b>{period}</b>.</p>
+                    <ul>{fileList}</ul>
+                    <p>Please review the attached file(s).</p>
+                    <p>Thank you.</p>",
+                attachments
+                    .Select(a => (a.FileName, a.Content, spreadsheetMime))
+                    .ToList());
+        }
     }
 }

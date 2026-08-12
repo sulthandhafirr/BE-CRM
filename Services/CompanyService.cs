@@ -166,6 +166,61 @@ namespace CRM.Api.Services
             return DeserializeSlaConfig(company.SlaConfig);
         }
 
+        // ── Export Schedule Config ─────────────────────────────────────
+
+        public async Task<ExportScheduleConfigDto?> GetExportScheduleConfigAsync(int companyId)
+        {
+            var company = await _db.Companies
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == companyId);
+
+            if (company is null) return null;
+
+            return DeserializeExportScheduleConfig(company.ExportScheduleConfig);
+        }
+
+        public async Task<ExportScheduleConfigDto?> UpdateExportScheduleConfigAsync(
+            int companyId, ExportScheduleConfigDto dto)
+        {
+            var company = await _db.Companies
+                .FirstOrDefaultAsync(c => c.Id == companyId);
+
+            if (company is null) return null;
+
+            // Preserve the last successful send date (managed by the scheduler, not the UI)
+            var previous = DeserializeExportScheduleConfig(company.ExportScheduleConfig);
+            if (string.IsNullOrEmpty(dto.LastSentDate))
+                dto.LastSentDate = previous.LastSentDate;
+
+            // If the schedule timing changed, allow a fresh send on the next matching window
+            // (e.g. admin moves the send time later on the same day).
+            if (previous.Frequency != dto.Frequency
+                || previous.DayOfMonth != dto.DayOfMonth
+                || previous.DayOfWeek != dto.DayOfWeek
+                || previous.Time != dto.Time)
+            {
+                dto.LastSentDate = null;
+            }
+
+            company.ExportScheduleConfig = JsonSerializer.Serialize(dto, JsonOptions);
+            await _db.SaveChangesAsync();
+
+            return DeserializeExportScheduleConfig(company.ExportScheduleConfig);
+        }
+
+        private static ExportScheduleConfigDto DeserializeExportScheduleConfig(string json)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<ExportScheduleConfigDto>(json, JsonOptions)
+                    ?? new ExportScheduleConfigDto();
+            }
+            catch
+            {
+                return new ExportScheduleConfigDto();
+            }
+        }
+
         private static SlaRulesConfigDto DeserializeSlaConfig(string json)
         {
             try

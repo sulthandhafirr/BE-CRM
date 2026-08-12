@@ -43,6 +43,9 @@ namespace CRM.Api.Models
         [Column("sla_config", TypeName = "jsonb")]
         public string SlaConfig { get; set; } = "{}";
 
+        [Column("export_schedule_config", TypeName = "jsonb")]
+        public string ExportScheduleConfig { get; set; } = "{}";
+
         [Column("subscription_plan")]
         public string? SubscriptionPlan { get; set; }
 
