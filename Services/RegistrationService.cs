@@ -99,6 +99,7 @@ namespace CRM.Api.Services
                         Name = request.FullName.Trim(),
                         RoleId = adminRole.Id,
                         CompanyId = company.Id,
+                        CreatedAt = now,
                     });
                     await _db.SaveChangesAsync();
                     await transaction.CommitAsync();
@@ -219,17 +220,20 @@ namespace CRM.Api.Services
                     .Where(p => p.CompanyId == companyId)
                     .Select(p => p.Id)
                     .ToListAsync();
-
-                await using var transaction = await _db.Database.BeginTransactionAsync();
                 var profileIds = authUserIds;
-                _db.Profiles.RemoveRange(await _db.Profiles.Where(p => p.CompanyId == companyId).ToListAsync());
-                _db.RolePermissions.RemoveRange(await _db.RolePermissions.Where(p => p.Role!.CompanyId == companyId).ToListAsync());
-                _db.Roles.RemoveRange(await _db.Roles.Where(r => r.CompanyId == companyId).ToListAsync());
-                var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId);
-                if (company != null)
-                    _db.Companies.Remove(company);
-                await _db.SaveChangesAsync();
-                await transaction.CommitAsync();
+
+                await _db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+                     {
+                         await using var transaction = await _db.Database.BeginTransactionAsync();
+                         _db.Profiles.RemoveRange(await _db.Profiles.Where(p => p.CompanyId == companyId).ToListAsync());
+                         _db.RolePermissions.RemoveRange(await _db.RolePermissions.Where(p => p.Role!.CompanyId == companyId).ToListAsync());
+                         _db.Roles.RemoveRange(await _db.Roles.Where(r => r.CompanyId == companyId).ToListAsync());
+                         var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId);
+                         if (company != null)
+                             _db.Companies.Remove(company);
+                         await _db.SaveChangesAsync();
+                         await transaction.CommitAsync();
+                     });
 
                 foreach (var authUserId in profileIds)
                     await DeleteAuthUserAsync(authUserId);

@@ -88,6 +88,7 @@ namespace CRM.Api.Controllers
                         RoleId    = request.RoleId,
                         Position  = string.IsNullOrWhiteSpace(request.Position) ? null : request.Position,
                         CompanyId = adminProfile.CompanyId,
+                        CreatedAt = DateTime.UtcNow,
                     };
 
                     _db.Profiles.Add(profile);
