@@ -17,8 +17,9 @@ namespace CRM.Api.Controllers
         private readonly IConfiguration _config;
         private readonly EmailService _emailService;
         private readonly NotificationService _notificationService;
+        private readonly RegistrationService _registrationService;
 
-        public PaymentsController(RoleService roleService, AppDbContext db, PaymentService paymentService, IConfiguration config, EmailService emailService, NotificationService notificationService)
+        public PaymentsController(RoleService roleService, AppDbContext db, PaymentService paymentService, IConfiguration config, EmailService emailService, NotificationService notificationService, RegistrationService registrationService)
              : base(roleService)
         {
             _db = db;
@@ -26,6 +27,7 @@ namespace CRM.Api.Controllers
             _config = config;
             _emailService = emailService;
             _notificationService = notificationService;
+            _registrationService = registrationService;
         }
 
         // POST api/payments/ticket/{ticketId}
@@ -76,7 +78,7 @@ namespace CRM.Api.Controllers
             var statusCode = payload.GetProperty("status_code").GetString();
             var grossAmount = payload.GetProperty("gross_amount").GetString();
             var signatureKey = payload.GetProperty("signature_key").GetString();
-            var transactionStatus = payload.GetProperty("transaction_status").GetString();
+            var transactionStatus = payload.GetProperty("transaction_status").GetString() ?? string.Empty;
 
             if (orderId == null || statusCode == null || grossAmount == null || signatureKey == null)
                 return BadRequest();
@@ -89,6 +91,14 @@ namespace CRM.Api.Controllers
 
             if (computedSignature != signatureKey)
                 return Unauthorized();
+
+            if (orderId.StartsWith("CRM-REG-", StringComparison.OrdinalIgnoreCase))
+            {
+                await _registrationService.HandlePaymentAsync(
+                    orderId,
+                    transactionStatus);
+                return Ok();
+            }
 
             var payment = await _db.Payments
                 .Include(p => p.Ticket)

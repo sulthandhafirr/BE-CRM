@@ -118,6 +118,8 @@ builder.Services.AddScoped<CompanyService>();
 
 builder.Services.AddScoped<RoleManagementService>();
 
+builder.Services.AddScoped<RegistrationService>();
+
 builder.Services.AddScoped<DuplicateDetectionService>();
 
 builder.Services.AddHttpClient<PaymentService>();

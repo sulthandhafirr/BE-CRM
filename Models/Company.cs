@@ -42,5 +42,17 @@ namespace CRM.Api.Models
 
         [Column("sla_config", TypeName = "jsonb")]
         public string SlaConfig { get; set; } = "{}";
+
+        [Column("subscription_plan")]
+        public string? SubscriptionPlan { get; set; }
+
+        [Column("subscription_status")]
+        public string? SubscriptionStatus { get; set; }
+
+        [Column("subscription_end")]
+        public DateTime? SubscriptionEnd { get; set; }
+
+        [Column("trial_use")]
+        public bool TrialUse { get; set; }
     }
 }
