@@ -178,5 +178,35 @@ namespace CRM.Api.Controllers
 
             return Ok(updated);
         }
+
+        /// <summary>
+        /// GET /api/company/settings/export-schedule — Get automatic export schedule configuration
+        /// </summary>
+        [HttpGet("export-schedule")]
+        public async Task<IActionResult> GetExportScheduleConfig()
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
+
+            var config = await _companyService.GetExportScheduleConfigAsync(companyId.Value);
+            if (config is null) return NotFound("Company not found.");
+
+            return Ok(config);
+        }
+
+        /// <summary>
+        /// PUT /api/company/settings/export-schedule — Update automatic export schedule configuration
+        /// </summary>
+        [HttpPut("export-schedule")]
+        public async Task<IActionResult> UpdateExportScheduleConfig([FromBody] ExportScheduleConfigDto dto)
+        {
+            var (role, companyId) = await GetCurrentUserRoleAndCompany();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
+
+            var updated = await _companyService.UpdateExportScheduleConfigAsync(companyId.Value, dto);
+            if (updated is null) return NotFound("Company not found.");
+
+            return Ok(updated);
+        }
     }
 }

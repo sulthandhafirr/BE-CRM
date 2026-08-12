@@ -114,6 +114,10 @@ builder.Services.AddHostedService<SlaReminderService>();
 
 builder.Services.AddScoped<ChatToolService>();
 
+builder.Services.AddScoped<ExcelExportService>();
+
+builder.Services.AddHostedService<ExportSchedulerService>();
+
 builder.Services.AddScoped<CompanyService>();
 
 builder.Services.AddScoped<RoleManagementService>();
