@@ -24,8 +24,14 @@ namespace CRM.Api.Services
         {
             var existingPending = await _db.Payments
                 .FirstOrDefaultAsync(p => p.TicketId == ticketId && p.Status == "pending");
-            if (existingPending != null && !string.IsNullOrEmpty(existingPending.SnapToken))
-                return (existingPending.SnapToken, string.Empty);
+            if (existingPending != null)
+            {
+                var isStillFresh = (DateTime.UtcNow - existingPending.CreatedAt).TotalHours < 24;
+                if (isStillFresh && !string.IsNullOrEmpty(existingPending.SnapToken))
+                    return (existingPending.SnapToken, string.Empty);
+
+                existingPending.Status = "failed";
+            }
 
             var orderId = $"STELLA-{ticketId}-{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
 
