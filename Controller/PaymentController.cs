@@ -187,7 +187,7 @@ namespace CRM.Api.Controllers
             switch (role)
             {
                 case "customer":
-                    query = query.Where(p => p.Ticket!.CustomerId == userId);
+                    query = query.Where(p => p.Ticket!.CustomerId == userId && p.Status != "failed");
                     break;
                 case "technician":
                     query = query.Where(p => p.Ticket!.TechnicianId == userId);
