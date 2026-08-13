@@ -33,4 +33,10 @@ namespace CRM.Api.Models
         public string? SnapToken { get; set; }
         public string? RedirectUrl { get; set; }
     }
+
+    public class RenewalRequest
+    {
+        [Required]
+        public string SubscriptionPlan { get; set; } = string.Empty;
+    }
 }

@@ -115,6 +115,26 @@ namespace CRM.Api.Services
             return await CreateSnapPaymentAsync(orderId, (int)amount, items);
         }
 
+        public async Task<(string Token, string RedirectUrl)> CreateRenewalPaymentAsync(int companyId, string plan, decimal amount)
+        {
+            if (amount <= 0)
+                throw new InvalidOperationException("Subscription amount must be greater than zero.");
+
+            var orderId = $"CRM-REN-{companyId}-{plan}-{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+            var items = new object[]
+            {
+                new
+                {
+                    id = $"subscription-{plan}",
+                    price = (int)amount,
+                    quantity = 1,
+                    name = $"CRM {plan} subscription renewal",
+                }
+            };
+
+            return await CreateSnapPaymentAsync(orderId, (int)amount, items);
+        }
+
         private async Task<(string Token, string RedirectUrl)> CreateSnapPaymentAsync(
             string orderId,
             int grossAmount,

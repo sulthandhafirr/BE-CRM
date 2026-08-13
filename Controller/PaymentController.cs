@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using CRM.Api.Data;
+using CRM.Api.Models;
 using CRM.Api.Services;
 using System.Text.Json;
 
@@ -70,6 +71,25 @@ namespace CRM.Api.Controllers
             }
         }
 
+        [Authorize]
+        [HttpPost("renewal")]
+        public async Task<IActionResult> CreateRenewal([FromBody] RenewalRequest request)
+        {
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            try
+            {
+                return Ok(await _registrationService.CreateRenewalPaymentAsync(userId, request.SubscriptionPlan));
+            }
+            catch (RegistrationException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
+        }
+
         // POST api/payments/webhook/midtrans
         [HttpPost("webhook/midtrans")]
         public async Task<IActionResult> MidtransWebhook([FromBody] JsonElement payload)
@@ -92,7 +112,8 @@ namespace CRM.Api.Controllers
             if (computedSignature != signatureKey)
                 return Unauthorized();
 
-            if (orderId.StartsWith("CRM-REG-", StringComparison.OrdinalIgnoreCase))
+            if (orderId.StartsWith("CRM-REG-", StringComparison.OrdinalIgnoreCase)
+                || orderId.StartsWith("CRM-REN-", StringComparison.OrdinalIgnoreCase))
             {
                 await _registrationService.HandlePaymentAsync(
                     orderId,

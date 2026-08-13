@@ -78,11 +78,18 @@ namespace CRM.Api.Controllers
             if (company == null)
                 return Forbid();
 
-            if (company.SubscriptionStatus is "pending" or "expired"
-                || company.SubscriptionEnd.HasValue && company.SubscriptionEnd <= DateTime.UtcNow)
+            if (company.SubscriptionStatus == "pending")
                 return Forbid();
 
-            return Ok(new { companyId = company.Id, company.SubscriptionStatus });
+            if (company.SubscriptionStatus == "expired"
+                || company.SubscriptionEnd.HasValue && company.SubscriptionEnd <= DateTime.UtcNow)
+            {
+                company.SubscriptionStatus = "expired";
+                await _db.SaveChangesAsync();
+                return Ok(new { companyId = company.Id, company.SubscriptionStatus, company.SubscriptionEnd });
+            }
+
+            return Ok(new { companyId = company.Id, company.SubscriptionStatus, company.SubscriptionEnd });
         }
 
         // GET /api/auth/verify-company?code=mcl
@@ -93,7 +100,6 @@ namespace CRM.Api.Controllers
 
             var profile = await _db.Profiles
                 .Include(p => p.Company)
-                .AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Id == userId);
 
             // no profile found
@@ -104,24 +110,32 @@ namespace CRM.Api.Controllers
             if (profile.CompanyId == null || profile.Company == null)
                 return Forbid();
 
-            if (profile.Company.SubscriptionStatus is "pending" or "expired")
+            if (!string.Equals(profile.Company.CompanyCode, code, StringComparison.OrdinalIgnoreCase))
                 return Forbid();
 
-            if (profile.Company.SubscriptionEnd.HasValue && profile.Company.SubscriptionEnd <= DateTime.UtcNow)
+            if (profile.Company.SubscriptionStatus == "pending")
+                return Forbid();
+
+            if (profile.Company.SubscriptionStatus == "expired"
+                || profile.Company.SubscriptionEnd.HasValue && profile.Company.SubscriptionEnd <= DateTime.UtcNow)
             {
                 profile.Company.SubscriptionStatus = "expired";
                 await _db.SaveChangesAsync();
-                return Forbid();
+                return Ok(new
+                {
+                    companyId = profile.CompanyId,
+                    companyName = profile.Company.CompanyName,
+                    subscriptionStatus = "expired",
+                    subscriptionEnd = profile.Company.SubscriptionEnd,
+                });
             }
-
-            // company code mismatch
-            if (!string.Equals(profile.Company.CompanyCode, code, StringComparison.OrdinalIgnoreCase))
-                return Forbid();
 
             return Ok(new
             {
                 companyId = profile.CompanyId,
-                companyName = profile.Company.CompanyName
+                companyName = profile.Company.CompanyName,
+                subscriptionStatus = profile.Company.SubscriptionStatus,
+                subscriptionEnd = profile.Company.SubscriptionEnd,
             });
         }
     }

@@ -154,22 +154,103 @@ namespace CRM.Api.Services
             };
         }
 
+        public async Task<RegisterResponse> CreateRenewalPaymentAsync(Guid userId, string plan)
+        {
+            plan = plan.Trim().ToLowerInvariant();
+            if (!PaidPlans.Contains(plan))
+                throw new RegistrationException("Only monthly and yearly renewal are available.", 400);
+
+            var profile = await _db.Profiles
+                .Include(p => p.Company)
+                .FirstOrDefaultAsync(p => p.Id == userId);
+            var company = profile?.Company;
+            if (company == null)
+                throw new RegistrationException("Company not found.", 404);
+
+            var now = DateTime.UtcNow;
+            var isExpired = company.SubscriptionStatus is "expired" or "pending"
+                || company.SubscriptionEnd.HasValue && company.SubscriptionEnd <= now;
+            if (!isExpired)
+                throw new RegistrationException("Subscription renewal is not required.", 409);
+
+            var amountKey = plan == "monthly" ? "Registration:MonthlyAmount" : "Registration:YearlyAmount";
+            var amount = _config.GetValue<decimal?>(amountKey);
+            if (!amount.HasValue || amount <= 0)
+                throw new RegistrationException($"{amountKey} is not configured.", 400);
+
+            company.SubscriptionStatus = "pending";
+            await _db.SaveChangesAsync();
+
+            try
+            {
+                var payment = await _paymentService.CreateRenewalPaymentAsync(company.Id, plan, amount.Value);
+                return new RegisterResponse
+                {
+                    CompanyId = company.Id,
+                    RequiresPayment = true,
+                    SubscriptionPlan = plan,
+                    SubscriptionStatus = "pending",
+                    SnapToken = payment.Token,
+                    RedirectUrl = payment.RedirectUrl,
+                };
+            }
+            catch
+            {
+                company.SubscriptionStatus = "expired";
+                await _db.SaveChangesAsync();
+                throw;
+            }
+        }
+
+        public async Task<bool> IsSubscriptionBlockedAsync(Guid userId)
+        {
+            var company = await _db.Profiles
+                .Where(p => p.Id == userId)
+                .Select(p => p.Company)
+                .FirstOrDefaultAsync();
+
+            if (company == null || company.SubscriptionStatus == "pending")
+                return company != null;
+
+            if (company.SubscriptionStatus == "expired"
+                || company.SubscriptionEnd.HasValue && company.SubscriptionEnd <= DateTime.UtcNow)
+            {
+                if (company.SubscriptionStatus != "expired")
+                {
+                    company.SubscriptionStatus = "expired";
+                    await _db.SaveChangesAsync();
+                }
+                return true;
+            }
+
+            return false;
+        }
+
         public async Task HandlePaymentAsync(string orderId, string transactionStatus)
         {
             var parts = orderId.Split('-', StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 3 || !string.Equals(parts[0], "CRM", StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(parts[1], "REG", StringComparison.OrdinalIgnoreCase)
                 || !int.TryParse(parts[2], out var companyId))
                 return;
 
             var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId);
-            if (company == null || company.SubscriptionStatus != "pending")
+            if (company == null)
+                return;
+
+            var isRenewal = string.Equals(parts[1], "REN", StringComparison.OrdinalIgnoreCase);
+            var isRegistration = string.Equals(parts[1], "REG", StringComparison.OrdinalIgnoreCase);
+            if ((!isRenewal && !isRegistration) || company.SubscriptionStatus != "pending")
+                return;
+
+            var plan = isRenewal && parts.Length >= 4 ? parts[3] : company.SubscriptionPlan;
+            if (plan is not ("monthly" or "yearly"))
                 return;
 
             if (transactionStatus is "settlement" or "capture")
             {
                 company.SubscriptionStatus = "active";
-                company.SubscriptionEnd = company.SubscriptionPlan == "yearly"
+                company.SubscriptionPlan = plan;
+                company.SubscriptionEnd = plan == "yearly"
                     ? DateTime.UtcNow.AddYears(1)
                     : DateTime.UtcNow.AddMonths(1);
                 await _db.SaveChangesAsync();
@@ -177,7 +258,17 @@ namespace CRM.Api.Services
             }
 
             if (transactionStatus is "expire" or "deny" or "cancel" or "failure")
-                await CleanupPendingAsync(company.Id, null);
+            {
+                if (isRenewal)
+                {
+                    company.SubscriptionStatus = "expired";
+                    await _db.SaveChangesAsync();
+                }
+                else
+                {
+                    await CleanupPendingAsync(company.Id, null);
+                }
+            }
         }
 
         private async Task<bool> HasUsedTrialAsync(string email)

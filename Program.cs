@@ -153,6 +153,30 @@ app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
+
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path;
+    var isSubscriptionEndpoint = path.StartsWithSegments("/api/auth/session-status")
+        || path.StartsWithSegments("/api/auth/verify-company")
+        || path.StartsWithSegments("/api/auth/registration-plans")
+        || path.StartsWithSegments("/api/payments/renewal");
+
+    if (context.User.Identity?.IsAuthenticated == true && !isSubscriptionEndpoint
+        && Guid.TryParse(context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var userId))
+    {
+        // ponytail: one subscription query per request; cache only if request volume makes it measurable.
+        var registrationService = context.RequestServices.GetRequiredService<RegistrationService>();
+        if (await registrationService.IsSubscriptionBlockedAsync(userId))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new { code = "subscription_required" });
+            return;
+        }
+    }
+
+    await next();
+});
 app.UseAuthorization();
 
 app.MapControllers();
