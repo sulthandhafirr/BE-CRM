@@ -151,8 +151,64 @@ namespace CRM.Api.Services
                 subscriptionPlan = company.SubscriptionPlan,
                 subscriptionStatus = company.SubscriptionStatus,
                 subscriptionEnd = company.SubscriptionEnd,
+                cancelAtPeriodEnd = company.CancelAtPeriodEnd,
             };
         }
+
+        public async Task<object> CancelSubscriptionAsync(Guid userId)
+        {
+            var company = await GetCompanyForUserAsync(userId);
+            if (company == null)
+                throw new RegistrationException("Company not found.", 404);
+
+            if (company.SubscriptionStatus != "active"
+                || !company.SubscriptionEnd.HasValue
+                || company.SubscriptionEnd <= DateTime.UtcNow)
+                throw new RegistrationException("Only an active subscription can be cancelled.", 409);
+
+            if (company.CancelAtPeriodEnd)
+                throw new RegistrationException("Subscription is already scheduled for cancellation.", 409);
+
+            company.CancelAtPeriodEnd = true;
+            await _db.SaveChangesAsync();
+            return ToSubscriptionResponse(company);
+        }
+
+        public async Task<object> ReactivateSubscriptionAsync(Guid userId)
+        {
+            var company = await GetCompanyForUserAsync(userId);
+            if (company == null)
+                throw new RegistrationException("Company not found.", 404);
+
+            if (company.SubscriptionStatus != "active"
+                || !company.SubscriptionEnd.HasValue
+                || company.SubscriptionEnd <= DateTime.UtcNow)
+                throw new RegistrationException("Only an active, unexpired subscription can be reactivated.", 409);
+
+            if (!company.CancelAtPeriodEnd)
+                throw new RegistrationException("Subscription is not scheduled for cancellation.", 409);
+
+            company.CancelAtPeriodEnd = false;
+            await _db.SaveChangesAsync();
+            return ToSubscriptionResponse(company);
+        }
+
+        private async Task<Company?> GetCompanyForUserAsync(Guid userId)
+        {
+            return await _db.Profiles
+                .Where(p => p.Id == userId)
+                .Select(p => p.Company)
+                .FirstOrDefaultAsync();
+        }
+
+        private static object ToSubscriptionResponse(Company company) => new
+        {
+            plan = company.SubscriptionPlan,
+            status = company.SubscriptionStatus,
+            subscriptionEnd = company.SubscriptionEnd,
+            trialUse = company.TrialUse,
+            cancelAtPeriodEnd = company.CancelAtPeriodEnd,
+        };
 
         public async Task<RegisterResponse> CreateRenewalPaymentAsync(Guid userId, string plan)
         {
@@ -253,6 +309,7 @@ namespace CRM.Api.Services
                 company.SubscriptionEnd = plan == "yearly"
                     ? DateTime.UtcNow.AddYears(1)
                     : DateTime.UtcNow.AddMonths(1);
+                company.CancelAtPeriodEnd = false;
                 await _db.SaveChangesAsync();
                 return;
             }

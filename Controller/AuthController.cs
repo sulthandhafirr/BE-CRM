@@ -86,10 +86,10 @@ namespace CRM.Api.Controllers
             {
                 company.SubscriptionStatus = "expired";
                 await _db.SaveChangesAsync();
-                return Ok(new { companyId = company.Id, company.SubscriptionStatus, company.SubscriptionEnd });
+                return Ok(new { companyId = company.Id, company.SubscriptionStatus, company.SubscriptionEnd, company.CancelAtPeriodEnd });
             }
 
-            return Ok(new { companyId = company.Id, company.SubscriptionStatus, company.SubscriptionEnd });
+            return Ok(new { companyId = company.Id, company.SubscriptionStatus, company.SubscriptionEnd, company.CancelAtPeriodEnd });
         }
 
         // GET /api/auth/verify-company?code=mcl
@@ -127,6 +127,7 @@ namespace CRM.Api.Controllers
                     companyName = profile.Company.CompanyName,
                     subscriptionStatus = "expired",
                     subscriptionEnd = profile.Company.SubscriptionEnd,
+                    cancelAtPeriodEnd = profile.Company.CancelAtPeriodEnd,
                 });
             }
 
@@ -136,6 +137,7 @@ namespace CRM.Api.Controllers
                 companyName = profile.Company.CompanyName,
                 subscriptionStatus = profile.Company.SubscriptionStatus,
                 subscriptionEnd = profile.Company.SubscriptionEnd,
+                cancelAtPeriodEnd = profile.Company.CancelAtPeriodEnd,
             });
         }
     }

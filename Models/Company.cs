@@ -57,5 +57,8 @@ namespace CRM.Api.Models
 
         [Column("trial_use")]
         public bool TrialUse { get; set; }
+
+        [Column("cancel_at_period_end")]
+        public bool CancelAtPeriodEnd { get; set; }
     }
 }

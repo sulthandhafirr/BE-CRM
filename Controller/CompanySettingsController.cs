@@ -17,6 +17,7 @@ namespace CRM.Api.Controllers
         private readonly CompanyService _companyService;
         private readonly AppDbContext _db;
         private readonly Supabase.Client _supabase;
+        private readonly RegistrationService _registrationService;
 
         private const string LOGO_BUCKET = "company-logos";
 
@@ -24,12 +25,14 @@ namespace CRM.Api.Controllers
             CompanyService companyService,
             RoleService roleService,
             AppDbContext db,
-            Supabase.Client supabase)
+            Supabase.Client supabase,
+            RegistrationService registrationService)
             : base(roleService)
         {
             _companyService = companyService;
             _db = db;
             _supabase = supabase;
+            _registrationService = registrationService;
         }
 
         /// <summary>
@@ -62,10 +65,43 @@ namespace CRM.Api.Controllers
                     status = c.SubscriptionStatus,
                     subscriptionEnd = c.SubscriptionEnd,
                     trialUse = c.TrialUse,
+                    cancelAtPeriodEnd = c.CancelAtPeriodEnd,
                 })
                 .FirstOrDefaultAsync();
 
             return subscription is null ? NotFound("Company not found.") : Ok(subscription);
+        }
+
+        [HttpPost("subscription/cancel")]
+        public async Task<IActionResult> CancelSubscription()
+        {
+            if (await GetCurrentUserRole() != "admin") return Forbid();
+
+            try
+            {
+                var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+                return Ok(await _registrationService.CancelSubscriptionAsync(userId));
+            }
+            catch (RegistrationException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("subscription/reactivate")]
+        public async Task<IActionResult> ReactivateSubscription()
+        {
+            if (await GetCurrentUserRole() != "admin") return Forbid();
+
+            try
+            {
+                var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+                return Ok(await _registrationService.ReactivateSubscriptionAsync(userId));
+            }
+            catch (RegistrationException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
         }
 
         /// <summary>
