@@ -228,8 +228,17 @@ namespace CRM.Api.Services
             if (company.SubscriptionStatus == "pending")
                 throw new RegistrationException("Another subscription payment is already processing.", 409);
 
-            if (await _db.SubscriptionPayments.AnyAsync(p => p.CompanyId == company.Id && p.Status == "pending"))
-                throw new RegistrationException("Another subscription payment is already processing.", 409);
+            // A previous attempt that was abandoned (e.g. the Midtrans popup was closed
+            // before completing) leaves a "pending" record behind and would otherwise
+            // block every retry with a 409. Mark those stale orders as failed so the
+            // customer can start a fresh payment attempt.
+            var stalePending = await _db.SubscriptionPayments
+                .Where(p => p.CompanyId == company.Id && p.Status == "pending")
+                .ToListAsync();
+            foreach (var stale in stalePending)
+                stale.Status = "failed";
+            if (stalePending.Count > 0)
+                await _db.SaveChangesAsync();
 
             var hasFutureSubscription = company.SubscriptionEnd.HasValue && company.SubscriptionEnd > now;
             var subscriptionStart = hasFutureSubscription ? company.SubscriptionEnd!.Value : now;

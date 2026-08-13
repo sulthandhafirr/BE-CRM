@@ -36,6 +36,16 @@ namespace CRM.Api.Controllers
         }
 
         /// <summary>
+        /// Subscription billing is managed by the company admin. The platform owner
+        /// (ultrauser) can also reach this page through role override, so allow both.
+        /// </summary>
+        private async Task<bool> IsBillingManager()
+        {
+            var role = await GetCurrentUserRole();
+            return role == "admin" || role == "ultrauser";
+        }
+
+        /// <summary>
         /// GET /api/company/settings — Get company settings for the current user's company
         /// </summary>
         [HttpGet]
@@ -80,7 +90,7 @@ namespace CRM.Api.Controllers
         [HttpGet("subscription/payments")]
         public async Task<IActionResult> GetSubscriptionPayments()
         {
-            if (await GetCurrentUserRole() != "admin") return Forbid();
+            if (!await IsBillingManager()) return Forbid();
 
             var (_, companyId) = await GetCurrentUserRoleAndCompany();
             if (companyId is null) return Unauthorized("User is not associated with a company.");
@@ -133,7 +143,7 @@ namespace CRM.Api.Controllers
         [HttpPost("subscription/cancel")]
         public async Task<IActionResult> CancelSubscription()
         {
-            if (await GetCurrentUserRole() != "admin") return Forbid();
+            if (!await IsBillingManager()) return Forbid();
 
             try
             {
@@ -149,7 +159,7 @@ namespace CRM.Api.Controllers
         [HttpPost("subscription/reactivate")]
         public async Task<IActionResult> ReactivateSubscription()
         {
-            if (await GetCurrentUserRole() != "admin") return Forbid();
+            if (!await IsBillingManager()) return Forbid();
 
             try
             {
