@@ -23,6 +23,7 @@ namespace CRM.Api.Data
         public DbSet<ProfileTier> ProfileTiers { get; set; } = null!;
         public DbSet<RolePermission> RolePermissions { get; set; } = null!;
         public DbSet<Payment> Payments { get; set; } = null!;
+        public DbSet<SubscriptionPayment> SubscriptionPayments { get; set; } = null!;
         public DbSet<TicketRating> TicketRatings { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)

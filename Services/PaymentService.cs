@@ -112,7 +112,7 @@ namespace CRM.Api.Services
                 }
             };
 
-            return await CreateSnapPaymentAsync(orderId, (int)amount, items);
+            return await CreateSubscriptionSnapPaymentAsync(companyId, plan, amount, orderId, items);
         }
 
         public async Task<(string Token, string RedirectUrl)> CreateRenewalPaymentAsync(int companyId, string plan, decimal amount)
@@ -132,7 +132,38 @@ namespace CRM.Api.Services
                 }
             };
 
-            return await CreateSnapPaymentAsync(orderId, (int)amount, items);
+            return await CreateSubscriptionSnapPaymentAsync(companyId, plan, amount, orderId, items);
+        }
+
+        private async Task<(string Token, string RedirectUrl)> CreateSubscriptionSnapPaymentAsync(
+            int companyId,
+            string plan,
+            decimal amount,
+            string orderId,
+            object[] items)
+        {
+            var payment = new SubscriptionPayment
+            {
+                CompanyId = companyId,
+                SubscriptionPlan = plan,
+                Amount = amount,
+                Status = "pending",
+                MidtransOrderId = orderId,
+                CreatedAt = DateTime.UtcNow,
+            };
+            _db.SubscriptionPayments.Add(payment);
+            await _db.SaveChangesAsync();
+
+            try
+            {
+                return await CreateSnapPaymentAsync(orderId, (int)amount, items);
+            }
+            catch
+            {
+                payment.Status = "failed";
+                await _db.SaveChangesAsync();
+                throw;
+            }
         }
 
         private async Task<(string Token, string RedirectUrl)> CreateSnapPaymentAsync(

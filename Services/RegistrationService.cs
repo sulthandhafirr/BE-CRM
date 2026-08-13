@@ -282,7 +282,11 @@ namespace CRM.Api.Services
             return false;
         }
 
-        public async Task HandlePaymentAsync(string orderId, string transactionStatus)
+        public async Task HandlePaymentAsync(
+            string orderId,
+            string transactionStatus,
+            string? transactionId = null,
+            string? paymentMethod = null)
         {
             var parts = orderId.Split('-', StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 3 || !string.Equals(parts[0], "CRM", StringComparison.OrdinalIgnoreCase)
@@ -292,6 +296,14 @@ namespace CRM.Api.Services
             var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId);
             if (company == null)
                 return;
+
+            var subscriptionPayment = await _db.SubscriptionPayments
+                .FirstOrDefaultAsync(p => p.MidtransOrderId == orderId);
+            if (subscriptionPayment != null)
+            {
+                subscriptionPayment.MidtransTransactionId = transactionId ?? subscriptionPayment.MidtransTransactionId;
+                subscriptionPayment.PaymentMethod = paymentMethod ?? subscriptionPayment.PaymentMethod;
+            }
 
             var isRenewal = string.Equals(parts[1], "REN", StringComparison.OrdinalIgnoreCase);
             var isRegistration = string.Equals(parts[1], "REG", StringComparison.OrdinalIgnoreCase);
@@ -304,18 +316,42 @@ namespace CRM.Api.Services
 
             if (transactionStatus is "settlement" or "capture")
             {
+                var subscriptionStart = DateTime.UtcNow;
+                var subscriptionEnd = plan == "yearly"
+                    ? subscriptionStart.AddYears(1)
+                    : subscriptionStart.AddMonths(1);
+
+                if (subscriptionPayment != null)
+                {
+                    subscriptionPayment.Status = "paid";
+                    subscriptionPayment.PaidAt = subscriptionStart;
+                    subscriptionPayment.SubscriptionStart = subscriptionStart;
+                    subscriptionPayment.SubscriptionEnd = subscriptionEnd;
+                }
+
                 company.SubscriptionStatus = "active";
                 company.SubscriptionPlan = plan;
-                company.SubscriptionEnd = plan == "yearly"
-                    ? DateTime.UtcNow.AddYears(1)
-                    : DateTime.UtcNow.AddMonths(1);
+                company.SubscriptionEnd = subscriptionEnd;
                 company.CancelAtPeriodEnd = false;
                 await _db.SaveChangesAsync();
                 return;
             }
 
+            if (transactionStatus == "pending")
+            {
+                if (subscriptionPayment != null)
+                {
+                    subscriptionPayment.Status = "pending";
+                    await _db.SaveChangesAsync();
+                }
+                return;
+            }
+
             if (transactionStatus is "expire" or "deny" or "cancel" or "failure")
             {
+                if (subscriptionPayment != null)
+                    subscriptionPayment.Status = "failed";
+
                 if (isRenewal)
                 {
                     company.SubscriptionStatus = "expired";
@@ -373,6 +409,7 @@ namespace CRM.Api.Services
                 await _db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
                      {
                          await using var transaction = await _db.Database.BeginTransactionAsync();
+                         _db.SubscriptionPayments.RemoveRange(await _db.SubscriptionPayments.Where(p => p.CompanyId == companyId).ToListAsync());
                          _db.Profiles.RemoveRange(await _db.Profiles.Where(p => p.CompanyId == companyId).ToListAsync());
                          _db.RolePermissions.RemoveRange(await _db.RolePermissions.Where(p => p.Role!.CompanyId == companyId).ToListAsync());
                          _db.Roles.RemoveRange(await _db.Roles.Where(r => r.CompanyId == companyId).ToListAsync());

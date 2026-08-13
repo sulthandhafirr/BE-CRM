@@ -117,7 +117,13 @@ namespace CRM.Api.Controllers
             {
                 await _registrationService.HandlePaymentAsync(
                     orderId,
-                    transactionStatus);
+                    transactionStatus,
+                    payload.TryGetProperty("transaction_id", out var subscriptionTransactionId)
+                        ? subscriptionTransactionId.GetString()
+                        : null,
+                    payload.TryGetProperty("payment_type", out var subscriptionPaymentMethod)
+                        ? subscriptionPaymentMethod.GetString()
+                        : null);
                 return Ok();
             }
 

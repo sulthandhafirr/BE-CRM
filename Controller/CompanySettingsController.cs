@@ -72,6 +72,37 @@ namespace CRM.Api.Controllers
             return subscription is null ? NotFound("Company not found.") : Ok(subscription);
         }
 
+        [HttpGet("subscription/payments")]
+        public async Task<IActionResult> GetSubscriptionPayments()
+        {
+            if (await GetCurrentUserRole() != "admin") return Forbid();
+
+            var (_, companyId) = await GetCurrentUserRoleAndCompany();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
+
+            var payments = await _db.SubscriptionPayments
+                .AsNoTracking()
+                .Where(p => p.CompanyId == companyId.Value)
+                .OrderByDescending(p => p.CreatedAt)
+                .Select(p => new
+                {
+                    id = p.Id,
+                    subscriptionPlan = p.SubscriptionPlan,
+                    amount = p.Amount,
+                    status = p.Status,
+                    midtransOrderId = p.MidtransOrderId,
+                    midtransTransactionId = p.MidtransTransactionId,
+                    paymentMethod = p.PaymentMethod,
+                    createdAt = p.CreatedAt,
+                    paidAt = p.PaidAt,
+                    subscriptionStart = p.SubscriptionStart,
+                    subscriptionEnd = p.SubscriptionEnd,
+                })
+                .ToListAsync();
+
+            return Ok(payments);
+        }
+
         [HttpPost("subscription/cancel")]
         public async Task<IActionResult> CancelSubscription()
         {
