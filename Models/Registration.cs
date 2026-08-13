@@ -32,6 +32,7 @@ namespace CRM.Api.Models
         public DateTime? SubscriptionEnd { get; set; }
         public string? SnapToken { get; set; }
         public string? RedirectUrl { get; set; }
+        public string? MidtransOrderId { get; set; }
     }
 
     public class RenewalRequest

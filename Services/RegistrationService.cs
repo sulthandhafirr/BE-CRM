@@ -126,6 +126,7 @@ namespace CRM.Api.Services
                     SubscriptionStatus = "pending",
                     SnapToken = payment.Token,
                     RedirectUrl = payment.RedirectUrl,
+                    MidtransOrderId = payment.OrderId,
                 };
             }
             catch
@@ -224,38 +225,42 @@ namespace CRM.Api.Services
                 throw new RegistrationException("Company not found.", 404);
 
             var now = DateTime.UtcNow;
-            var isExpired = company.SubscriptionStatus is "expired" or "pending"
-                || company.SubscriptionEnd.HasValue && company.SubscriptionEnd <= now;
-            if (!isExpired)
-                throw new RegistrationException("Subscription renewal is not required.", 409);
+            if (company.SubscriptionStatus == "pending")
+                throw new RegistrationException("Another subscription payment is already processing.", 409);
+
+            if (await _db.SubscriptionPayments.AnyAsync(p => p.CompanyId == company.Id && p.Status == "pending"))
+                throw new RegistrationException("Another subscription payment is already processing.", 409);
+
+            var hasFutureSubscription = company.SubscriptionEnd.HasValue && company.SubscriptionEnd > now;
+            var subscriptionStart = hasFutureSubscription ? company.SubscriptionEnd!.Value : now;
+            var subscriptionEnd = plan == "yearly"
+                ? subscriptionStart.AddYears(1)
+                : subscriptionStart.AddMonths(1);
+
+            if (company.SubscriptionStatus is not ("active" or "expired" or "trial"))
+                throw new RegistrationException("Subscription renewal is not available for this company.", 409);
 
             var amountKey = plan == "monthly" ? "Registration:MonthlyAmount" : "Registration:YearlyAmount";
             var amount = _config.GetValue<decimal?>(amountKey);
             if (!amount.HasValue || amount <= 0)
                 throw new RegistrationException($"{amountKey} is not configured.", 400);
 
-            company.SubscriptionStatus = "pending";
-            await _db.SaveChangesAsync();
-
-            try
+            var payment = await _paymentService.CreateRenewalPaymentAsync(
+                company.Id,
+                plan,
+                amount.Value,
+                subscriptionStart,
+                subscriptionEnd);
+            return new RegisterResponse
             {
-                var payment = await _paymentService.CreateRenewalPaymentAsync(company.Id, plan, amount.Value);
-                return new RegisterResponse
-                {
-                    CompanyId = company.Id,
-                    RequiresPayment = true,
-                    SubscriptionPlan = plan,
-                    SubscriptionStatus = "pending",
-                    SnapToken = payment.Token,
-                    RedirectUrl = payment.RedirectUrl,
-                };
-            }
-            catch
-            {
-                company.SubscriptionStatus = "expired";
-                await _db.SaveChangesAsync();
-                throw;
-            }
+                CompanyId = company.Id,
+                RequiresPayment = true,
+                SubscriptionPlan = plan,
+                SubscriptionStatus = "pending",
+                SnapToken = payment.Token,
+                RedirectUrl = payment.RedirectUrl,
+                MidtransOrderId = payment.OrderId,
+            };
         }
 
         public async Task<bool> IsSubscriptionBlockedAsync(Guid userId)
@@ -301,13 +306,25 @@ namespace CRM.Api.Services
                 .FirstOrDefaultAsync(p => p.MidtransOrderId == orderId);
             if (subscriptionPayment != null)
             {
+                if (subscriptionPayment.Status is "paid" or "failed")
+                    return;
+
                 subscriptionPayment.MidtransTransactionId = transactionId ?? subscriptionPayment.MidtransTransactionId;
                 subscriptionPayment.PaymentMethod = paymentMethod ?? subscriptionPayment.PaymentMethod;
             }
 
             var isRenewal = string.Equals(parts[1], "REN", StringComparison.OrdinalIgnoreCase);
             var isRegistration = string.Equals(parts[1], "REG", StringComparison.OrdinalIgnoreCase);
-            if ((!isRenewal && !isRegistration) || company.SubscriptionStatus != "pending")
+            if (!isRenewal && !isRegistration)
+                return;
+
+            if (subscriptionPayment == null)
+                return;
+
+            if (isRegistration && company.SubscriptionStatus != "pending")
+                return;
+
+            if (isRenewal && company.SubscriptionStatus == "pending")
                 return;
 
             var plan = isRenewal && parts.Length >= 4 ? parts[3] : company.SubscriptionPlan;
@@ -316,18 +333,22 @@ namespace CRM.Api.Services
 
             if (transactionStatus is "settlement" or "capture")
             {
-                var subscriptionStart = DateTime.UtcNow;
-                var subscriptionEnd = plan == "yearly"
-                    ? subscriptionStart.AddYears(1)
-                    : subscriptionStart.AddMonths(1);
+                var subscriptionStart = subscriptionPayment.SubscriptionStart ?? DateTime.UtcNow;
+                var subscriptionEnd = subscriptionPayment.SubscriptionEnd
+                    ?? (plan == "yearly" ? subscriptionStart.AddYears(1) : subscriptionStart.AddMonths(1));
 
-                if (subscriptionPayment != null)
+                if (subscriptionEnd <= DateTime.UtcNow)
                 {
-                    subscriptionPayment.Status = "paid";
-                    subscriptionPayment.PaidAt = subscriptionStart;
-                    subscriptionPayment.SubscriptionStart = subscriptionStart;
-                    subscriptionPayment.SubscriptionEnd = subscriptionEnd;
+                    subscriptionStart = DateTime.UtcNow;
+                    subscriptionEnd = plan == "yearly"
+                        ? subscriptionStart.AddYears(1)
+                        : subscriptionStart.AddMonths(1);
                 }
+
+                subscriptionPayment.Status = "paid";
+                subscriptionPayment.PaidAt = DateTime.UtcNow;
+                subscriptionPayment.SubscriptionStart = subscriptionStart;
+                subscriptionPayment.SubscriptionEnd = subscriptionEnd;
 
                 company.SubscriptionStatus = "active";
                 company.SubscriptionPlan = plan;
@@ -339,22 +360,17 @@ namespace CRM.Api.Services
 
             if (transactionStatus == "pending")
             {
-                if (subscriptionPayment != null)
-                {
-                    subscriptionPayment.Status = "pending";
-                    await _db.SaveChangesAsync();
-                }
+                subscriptionPayment.Status = "pending";
+                await _db.SaveChangesAsync();
                 return;
             }
 
             if (transactionStatus is "expire" or "deny" or "cancel" or "failure")
             {
-                if (subscriptionPayment != null)
-                    subscriptionPayment.Status = "failed";
+                subscriptionPayment.Status = "failed";
 
                 if (isRenewal)
                 {
-                    company.SubscriptionStatus = "expired";
                     await _db.SaveChangesAsync();
                 }
                 else

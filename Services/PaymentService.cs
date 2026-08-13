@@ -95,7 +95,12 @@ namespace CRM.Api.Services
             return (token, redirectUrl);
         }
 
-        public async Task<(string Token, string RedirectUrl)> CreateSubscriptionPaymentAsync(int companyId, string plan, decimal amount)
+        public async Task<(string Token, string RedirectUrl, string OrderId)> CreateSubscriptionPaymentAsync(
+            int companyId,
+            string plan,
+            decimal amount,
+            DateTime? subscriptionStart = null,
+            DateTime? subscriptionEnd = null)
         {
             if (amount <= 0)
                 throw new InvalidOperationException("Subscription amount must be greater than zero.");
@@ -112,10 +117,15 @@ namespace CRM.Api.Services
                 }
             };
 
-            return await CreateSubscriptionSnapPaymentAsync(companyId, plan, amount, orderId, items);
+            return await CreateSubscriptionSnapPaymentAsync(companyId, plan, amount, orderId, items, subscriptionStart, subscriptionEnd);
         }
 
-        public async Task<(string Token, string RedirectUrl)> CreateRenewalPaymentAsync(int companyId, string plan, decimal amount)
+        public async Task<(string Token, string RedirectUrl, string OrderId)> CreateRenewalPaymentAsync(
+            int companyId,
+            string plan,
+            decimal amount,
+            DateTime subscriptionStart,
+            DateTime subscriptionEnd)
         {
             if (amount <= 0)
                 throw new InvalidOperationException("Subscription amount must be greater than zero.");
@@ -132,15 +142,17 @@ namespace CRM.Api.Services
                 }
             };
 
-            return await CreateSubscriptionSnapPaymentAsync(companyId, plan, amount, orderId, items);
+            return await CreateSubscriptionSnapPaymentAsync(companyId, plan, amount, orderId, items, subscriptionStart, subscriptionEnd);
         }
 
-        private async Task<(string Token, string RedirectUrl)> CreateSubscriptionSnapPaymentAsync(
+        private async Task<(string Token, string RedirectUrl, string OrderId)> CreateSubscriptionSnapPaymentAsync(
             int companyId,
             string plan,
             decimal amount,
             string orderId,
-            object[] items)
+            object[] items,
+            DateTime? subscriptionStart,
+            DateTime? subscriptionEnd)
         {
             var payment = new SubscriptionPayment
             {
@@ -150,13 +162,16 @@ namespace CRM.Api.Services
                 Status = "pending",
                 MidtransOrderId = orderId,
                 CreatedAt = DateTime.UtcNow,
+                SubscriptionStart = subscriptionStart,
+                SubscriptionEnd = subscriptionEnd,
             };
             _db.SubscriptionPayments.Add(payment);
             await _db.SaveChangesAsync();
 
             try
             {
-                return await CreateSnapPaymentAsync(orderId, (int)amount, items);
+                var snap = await CreateSnapPaymentAsync(orderId, (int)amount, items);
+                return (snap.Token, snap.RedirectUrl, orderId);
             }
             catch
             {

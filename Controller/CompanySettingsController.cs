@@ -56,20 +56,25 @@ namespace CRM.Api.Controllers
             var (_, companyId) = await GetCurrentUserRoleAndCompany();
             if (companyId is null) return Unauthorized("User is not associated with a company.");
 
-            var subscription = await _db.Companies
-                .AsNoTracking()
-                .Where(c => c.Id == companyId.Value)
-                .Select(c => new
-                {
-                    plan = c.SubscriptionPlan,
-                    status = c.SubscriptionStatus,
-                    subscriptionEnd = c.SubscriptionEnd,
-                    trialUse = c.TrialUse,
-                    cancelAtPeriodEnd = c.CancelAtPeriodEnd,
-                })
-                .FirstOrDefaultAsync();
+            var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId.Value);
+            if (company is null) return NotFound("Company not found.");
 
-            return subscription is null ? NotFound("Company not found.") : Ok(subscription);
+            if (company.SubscriptionStatus != "expired"
+                && company.SubscriptionEnd.HasValue
+                && company.SubscriptionEnd <= DateTime.UtcNow)
+            {
+                company.SubscriptionStatus = "expired";
+                await _db.SaveChangesAsync();
+            }
+
+            return Ok(new
+            {
+                plan = company.SubscriptionPlan,
+                status = company.SubscriptionStatus,
+                subscriptionEnd = company.SubscriptionEnd,
+                trialUse = company.TrialUse,
+                cancelAtPeriodEnd = company.CancelAtPeriodEnd,
+            });
         }
 
         [HttpGet("subscription/payments")]
@@ -101,6 +106,28 @@ namespace CRM.Api.Controllers
                 .ToListAsync();
 
             return Ok(payments);
+        }
+
+        [HttpGet("subscription/payments/{orderId}")]
+        public async Task<IActionResult> GetSubscriptionPayment(string orderId)
+        {
+            var (_, companyId) = await GetCurrentUserRoleAndCompany();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
+
+            var payment = await _db.SubscriptionPayments
+                .AsNoTracking()
+                .Where(p => p.CompanyId == companyId.Value && p.MidtransOrderId == orderId)
+                .Select(p => new
+                {
+                    id = p.Id,
+                    status = p.Status,
+                    subscriptionPlan = p.SubscriptionPlan,
+                    subscriptionStart = p.SubscriptionStart,
+                    subscriptionEnd = p.SubscriptionEnd,
+                })
+                .FirstOrDefaultAsync();
+
+            return payment is null ? NotFound() : Ok(payment);
         }
 
         [HttpPost("subscription/cancel")]
