@@ -47,6 +47,27 @@ namespace CRM.Api.Controllers
             return Ok(settings);
         }
 
+        [HttpGet("subscription")]
+        public async Task<IActionResult> GetSubscription()
+        {
+            var (_, companyId) = await GetCurrentUserRoleAndCompany();
+            if (companyId is null) return Unauthorized("User is not associated with a company.");
+
+            var subscription = await _db.Companies
+                .AsNoTracking()
+                .Where(c => c.Id == companyId.Value)
+                .Select(c => new
+                {
+                    plan = c.SubscriptionPlan,
+                    status = c.SubscriptionStatus,
+                    subscriptionEnd = c.SubscriptionEnd,
+                    trialUse = c.TrialUse,
+                })
+                .FirstOrDefaultAsync();
+
+            return subscription is null ? NotFound("Company not found.") : Ok(subscription);
+        }
+
         /// <summary>
         /// PUT /api/company/settings — Update company settings for the current user's company
         /// </summary>

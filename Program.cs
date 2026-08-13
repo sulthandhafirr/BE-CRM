@@ -160,6 +160,7 @@ app.Use(async (context, next) =>
     var isSubscriptionEndpoint = path.StartsWithSegments("/api/auth/session-status")
         || path.StartsWithSegments("/api/auth/verify-company")
         || path.StartsWithSegments("/api/auth/registration-plans")
+        || path.StartsWithSegments("/api/company/settings/subscription")
         || path.StartsWithSegments("/api/payments/renewal");
 
     if (context.User.Identity?.IsAuthenticated == true && !isSubscriptionEndpoint
