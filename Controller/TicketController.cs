@@ -221,6 +221,7 @@ namespace CRM.Api.Controllers
                     isBillable = t.IsBillable,
                     billAmount = t.BillAmount,
                     billItems = t.BillItems,
+                    billSent = t.BillSent,
                     paymentStatus = _db.Payments
                         .Where(p => p.TicketId == t.Id)
                         .OrderByDescending(p => p.CreatedAt)
@@ -443,6 +444,9 @@ namespace CRM.Api.Controllers
                 if (role == "cs_agent" && ticket.AgentId != userId)
                     return Forbid();
 
+                if (ticket.BillSent)
+                    return Conflict(new { message = "Cannot edit billing after it has been sent to the customer." });
+
                 var hasPendingPayment = await _db.Payments
                     .AnyAsync(p => p.TicketId == ticket.Id && p.Status == "pending");
                 if (hasPendingPayment)
@@ -459,6 +463,21 @@ namespace CRM.Api.Controllers
                     });
                     ticket.BillAmount = request.BillItems.Sum(i => i.Amount);
                 }
+            }
+
+            // Send bill to customer
+            if (request.BillSent.HasValue && request.BillSent.Value)
+            {
+                if (role == "cs_agent" && ticket.AgentId != userId)
+                    return Forbid();
+
+                if (!ticket.IsBillable || string.IsNullOrEmpty(ticket.BillItems))
+                    return BadRequest(new { message = "Cannot send an empty bill." });
+
+                if (ticket.BillSent)
+                    return Conflict(new { message = "Bill has already been sent." });
+
+                ticket.BillSent = true;
             }
 
             // Count ResolutionTime if ticket status change to "Solved"
@@ -1313,6 +1332,9 @@ namespace CRM.Api.Controllers
             public decimal? BillAmount { get; set; }
             [JsonPropertyName("billItems")]
             public List<BillItemRequest>? BillItems { get; set; }
+
+            [JsonPropertyName("billSent")]
+            public bool? BillSent { get; set; }
         }
     }
 
