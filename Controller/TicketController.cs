@@ -478,6 +478,20 @@ namespace CRM.Api.Controllers
                     return Conflict(new { message = "Bill has already been sent." });
 
                 ticket.BillSent = true;
+                var billCustomer = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == ticket.CustomerId);
+                if (billCustomer?.Email != null)
+                {
+                    List<BillItemRequest>? billEmailItems = null;
+                    if (!string.IsNullOrEmpty(ticket.BillItems))
+                        billEmailItems = JsonSerializer.Deserialize<List<BillItemRequest>>(ticket.BillItems, new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+
+                    _ = _emailService.SendBillIssuedAsync(billCustomer.Email, billCustomer.Name ?? "Customer", ticket.Subject ?? "Your Ticket", ticket.Id, ticket.BillAmount ?? 0, billEmailItems);
+                }
+
+                await _notificationService.CreateAsync(ticket.CustomerId, $"A bill of Rp {ticket.BillAmount:N0} has been issued for your ticket #{ticket.Id} '{ticket.Subject}'.");
             }
 
             // Count ResolutionTime if ticket status change to "Solved"

@@ -192,6 +192,34 @@ namespace CRM.Api.Services
                     <p>Please try again from your ticket page.</p>"
             );
 
+        public Task SendBillIssuedAsync(string toEmail, string toName, string ticketSubject, long ticketId, decimal amount, List<BillItemRequest>? items)
+        {
+            var itemsHtml = "";
+            if (items != null && items.Count > 0)
+            {
+                var rows = string.Join("", items.Select(i =>
+                    $"<tr><td style='padding:6px 0;color:#374151;'>{i.Name}</td><td style='padding:6px 0;text-align:right;color:#374151;'>Rp {i.Amount:N0}</td></tr>"));
+
+                itemsHtml = $@"
+            <table style='width:100%;border-collapse:collapse;margin:12px 0;'>
+                {rows}
+                <tr style='border-top:1px solid #E5E7EB;font-weight:bold;'>
+                    <td style='padding:8px 0;'>Total</td>
+                    <td style='padding:8px 0;text-align:right;'>Rp {amount:N0}</td>
+                </tr>
+            </table>";
+            }
+
+            return SendAsync(
+                toEmail, toName,
+                "A Bill Has Been Issued for Your Ticket",
+                $@"<p>Hi <b>{toName}</b>,</p>
+            <p>A bill has been issued for your ticket <b>'{ticketSubject}'</b> <i>(#{ticketId})</i>.</p>
+            {itemsHtml}
+            <p>Please log in to review and complete payment.</p>"
+            );
+        }
+
         /// <summary>
         /// Sends a scheduled data export report with Excel file(s) attached.
         /// </summary>
